@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ERTT — App Tournois</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Roboto', sans-serif; overflow: hidden; }
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+    input[type=number] { -moz-appearance: textfield; }
+
+    #tweaks-panel {
+      position: fixed; bottom: 24px; right: 24px; z-index: 999;
+      background: #fff; border-radius: 14px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+      padding: 18px 20px; width: 240px;
+      display: none; flex-direction: column; gap: 14px;
+      border: 1px solid #e8eaed;
+    }
+    #tweaks-panel.open { display: flex; }
+    #tweaks-panel h3 { font-size: 13px; font-weight: 700; color: #1a1d23; }
+    .tweak-label { font-size: 12px; color: #6b7280; font-weight: 600; margin-bottom: 6px; }
+    .tweak-options { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tweak-btn { padding: 7px 14px; border-radius: 8px; border: 1.5px solid #e8eaed; background: #fff; font-size: 13px; font-weight: 600; cursor: pointer; color: #444; transition: all .15s ease; }
+    .tweak-btn.active { border-color: #20bf6b; background: rgba(32,191,107,.08); color: #20bf6b; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<div id="tweaks-panel">
+  <h3>Tweaks</h3>
+  <div>
+    <div class="tweak-label">Direction visuelle</div>
+    <div class="tweak-options" id="tweak-theme"></div>
+  </div>
+</div>
+
+<script src="init-data.js"></script>
+<script type="text/babel" src="AppShell.jsx?v=2"></script>
+<script type="text/babel" src="PoolsScreen.jsx?v=2"></script>
+<script type="text/babel" src="BracketsScreen.jsx?v=2"></script>
+<script type="text/babel" src="ResultsScreen.jsx?v=2"></script>
+<script type="text/babel">
+// KnockoutScreen — Tableau dynamique (n poules)
+// Taille du bracket = prochaine puissance de 2 >= pools.length * 2
+// Rounds générés automatiquement
+
+const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracketResults, onUpdateBracketResults, type }) => {
+  const t = window.THEMES[theme];
+  const [modal, setModal] = React.useState(null);
+  const [score, setScore] = React.useState({ p1: '', p2: '' });
+  const firstInputRef = React.useRef(null);
+
+  const SETS_TO_WIN = 3;
+  const accentColor = type === 'principal' ? '#20bf6b' : '#f79025';
+  const title = type === 'principal' ? 'Tableau principal' : 'Consolante';
+  const prefix = type;
+
+  // Rang dans la poule : principal = 1er/2e, consolante = 3e/4e
+  const rankA = type === 'principal' ? 0 : 2;
+  const rankB = type === 'principal' ? 1 : 3;
+
+  const autoWinner = (() => {
+    const s1 = parseInt(score.p1), s2 = parseInt(score.p2);
+    if (s1 === SETS_TO_WIN && s2 < SETS_TO_WIN) return 1;
+    if (s2 === SETS_TO_WIN && s1 < SETS_TO_WIN) return 2;
+    return null;
+  })();
+
+  // Classement d'une poule
+  const poolStandings = (pool) => {
+    const stats = pool.playerIds.map(id => {
+      const name = players.find(p => p.id === id)?.name || '?';
+      return { id, name, v: 0, d: 0, sf: 0, sa: 0, pf: 0, pa: 0 };
+    });
+    for (let i = 0; i < pool.playerIds.length; i++) {
+      for (let j = i + 1; j < pool.playerIds.length; j++) {
+        const key = `pool-${pool.id}-${pool.playerIds[i]}-${pool.playerIds[j]}`;
+        const r = results[key];
+        if (!r) continue;
+        let w1 = 0, w2 = 0;
+        const si = stats.find(s => s.id === pool.playerIds[i]);
+        const sj = stats.find(s => s.id === pool.playerIds[j]);
+        (r.sets || []).forEach(([s1, s2]) => {
+          s1 > s2 ? w1++ : w2++;
+          si.pf += s1; si.pa += s2;
+          sj.pf += s2; sj.pa += s1;
+        });
+        if (w1 > w2) { si.v++; sj.d++; } else { sj.v++; si.d++; }
+        si.sf += w1; si.sa += w2; sj.sf += w2; sj.sa += w1;
+      }
+    }
+    return stats.sort((a, b) => b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa) || (b.pf - b.pa) - (a.pf - a.pa));
+  };
+
+  if (pools.length < 2) {
+    return (
+      <div style={{ padding: '60px', textAlign: 'center', color: t.textSecondary }}>
+        <i className="fas fa-sitemap" style={{ fontSize: 32, display: 'block', marginBottom: 12, opacity: .3 }}></i>
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Au moins 2 poules requises</div>
+        <div style={{ fontSize: 13 }}>Actuellement {pools.length} poule{pools.length !== 1 ? 's' : ''} configurée{pools.length !== 1 ? 's' : ''}</div>
+      </div>
+    );
+  }
+
+  // Taille du bracket principal = prochaine puissance de 2 >= 1ers+2es
+  const nextPow2 = (n) => { let b = 1; while (b < n) b *= 2; return b; };
+  const principalBracketSize = nextPow2(pools.length * 2);
+  const principalMissingSpots = Math.max(0, principalBracketSize - pools.length * 2);
+  const barrageCount = Math.max(0, pools.length - principalMissingSpots); // nb matchs de barrage
+  // Consolante : perdants de barrage + 4es de poule
+  const consolanteTotalPlayers = barrageCount + pools.length;
+  const bracketSize = type === 'principal' ? principalBracketSize : nextPow2(consolanteTotalPlayers);
+
+  // Reconstruction des matchs de barrage (même logique que BarrageScreen)
+  const computeBarrageMatches = () => {
+    const autoQualifiers = pools.length * 2;
+    const missingSpots = Math.max(0, principalBracketSize - autoQualifiers);
+
+    const thirdPlacePlayers = pools.map((pool) => {
+      const st = poolStandings(pool);
+      const p = st[2] || null;
+      if (!p) return null;
+      const stats = st.find(s => s.id === p.id);
+      return { player: p, poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
+    }).filter(Boolean);
+
+    // Les MEILLEURS 3es jouent les barrages (missingSpots matchs → missingSpots vainqueurs)
+    // Les autres vont directement en consolante
+    const barrageMatchCount = missingSpots;
+    const sortedDesc = [...thirdPlacePlayers].sort((a, b) => b.v - a.v || b.diff - a.diff || b.pointDiff - a.pointDiff);
+    const eligible = sortedDesc.slice(0, barrageMatchCount * 2);
+    const directConsolante = thirdPlacePlayers.filter(x => !eligible.find(e => e.poolId === x.poolId));
+
+    const matches = [];
+    for (let i = 0; i < eligible.length; i += 2) {
+      const a = eligible[i], b = eligible[i + 1];
+      if (!a || !b) break;
+      matches.push({ id: `barrage-${a.poolId}-${b.poolId}`, p1: a.player, p2: b.player });
+    }
+    return { matches, directConsolante: directConsolante.map(x => x.player) };
+  };
+
+  const { matches: barrageMatches, directConsolante } = computeBarrageMatches();
+
+  // Vainqueurs et perdants des barrages
+  const barrageWinners = barrageMatches.map(m => {
+    const r = barrageResults?.[m.id];
+    if (!r) return null;
+    return r.winner === 1 ? r.p1 : r.p2;
+  });
+  const barrageLosers = barrageMatches.map(m => {
+    const r = barrageResults?.[m.id];
+    if (!r) return null;
+    return r.winner === 1 ? r.p2 : r.p1;
+  });
+
+  // Construction des têtes de série
+  // Tableau principal : 1ers (positions 0..N-1), 2es (positions fin-1..fin-N),
+  //   puis vainqueurs de barrage dans les slots restants du milieu
+  // Consolante : 3es directs + perdants de barrage + 4es
+  const seeds = Array(bracketSize).fill(null);
+
+  if (type === 'principal') {
+    const n = pools.length; // nb de poules
+
+    // Placement standard FFTT pour bracket de 32 (source : 32D-32J-Eliminat.Direc.)
+    // FFTT_32[pos] = numéro de seed placé à cette position (1-indexé)
+    // Seed 1..n = 1ers de poule, seed n+1..2n = 2es de poule, seed 2n+1.. = vainqueurs barrage
+    const FFTT_32 = [1,32,17,16,9,24,25,8,5,28,21,12,13,20,29,4,3,30,19,14,11,22,27,6,7,26,23,10,15,18,31,2];
+    const FFTT_16 = [1,16,9,8,5,12,13,4,3,14,11,6,7,10,15,2];
+    const FFTT_8  = [1,8,5,4,3,6,7,2];
+    const ffttOrder = bracketSize === 16 ? FFTT_16 : bracketSize === 8 ? FFTT_8 : FFTT_32;
+
+    // Classement officiel par groupes (logique tournoi club) :
+    // - Seeds 1..n      = 1ers de poule, triés par V → diff sets → diff points
+    // - Seeds n+1..2n   = 2es de poule, triés par V → diff sets → diff points
+    // - Seeds 2n+1..    = vainqueurs de barrage (dans l'ordre des matchs)
+    const sortByPerf = (arr) => [...arr].sort((a, b) =>
+      b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa) || (b.pf - b.pa) - (a.pf - a.pa)
+    );
+
+    const firstRaw  = pools.map(pool => { const st = poolStandings(pool); const p = st[rankA]; if (!p) return null; return { ...p, ...st.find(s=>s.id===p.id) }; }).filter(Boolean);
+    const secondRaw = pools.map(pool => { const st = poolStandings(pool); const p = st[rankB]; if (!p) return null; return { ...p, ...st.find(s=>s.id===p.id) }; }).filter(Boolean);
+
+    const firstSorted  = sortByPerf(firstRaw);
+    const secondSorted = sortByPerf(secondRaw);
+    const barrageSeeds = barrageWinners.filter(Boolean);
+
+    // Table seed numéro → joueur (1-indexé)
+    const seedMap = {};
+    firstSorted.forEach((p, i)  => { seedMap[i + 1] = p; });
+    secondSorted.forEach((p, i) => { seedMap[n + i + 1] = p; });
+    barrageSeeds.forEach((p, i) => { seedMap[n * 2 + i + 1] = p; });
+
+    // Placer chaque seed à sa position dans le bracket
+    ffttOrder.forEach((seedNum, pos) => {
+      seeds[pos] = seedMap[seedNum] || null;
+    });
+  } else {
+    // Consolante : trier tous les participants par performance décroissante
+    // Les meilleures têtes de série obtiennent les exemptions (byes)
+    const consolantePlayers = [
+      ...directConsolante,
+      ...barrageLosers.filter(Boolean),
+      ...pools.map(pool => poolStandings(pool)[3]).filter(Boolean),
+    ].sort((a, b) =>
+      b.v - a.v ||
+      (b.sf - b.sa) - (a.sf - a.sa) ||
+      (b.pf - b.pa) - (a.pf - a.pa)
+    );
+
+    // Placement interleaved : pairs en haut du bracket, impairs en bas
+    // → seeds 1 & 2 dans des moitiés opposées, top 4 reçoivent les exemptions
+    const half = bracketSize / 2;
+    consolantePlayers.forEach((player, i) => {
+      const pos = i % 2 === 0 ? Math.floor(i / 2) : half + Math.floor(i / 2);
+      seeds[pos] = player;
+    });
+    // Les positions restantes (null) sont les exemptions pour les meilleures têtes de série
+  }
+
+  // Résolution d'un résultat
+  // L'auto-avancement (bye) ne s'applique qu'au R1 — les rounds suivants nécessitent un résultat réel
+  const resolveMatch = (match, role, isR1 = false) => {
+    if (!match) return null;
+    const r = bracketResults[match.id];
+    if (r) return role === 'winner' ? (r.winner === 1 ? r.p1 : r.p2) : (r.winner === 1 ? r.p2 : r.p1);
+    // Auto-avancement bye uniquement au R1
+    if (isR1) {
+      if (match.p1 && !match.p2) return role === 'winner' ? match.p1 : null;
+      if (match.p2 && !match.p1) return role === 'winner' ? match.p2 : null;
+    }
+    return null;
+  };
+
+  // Round 1 : pairings seed[2i] vs seed[2i+1] (positions adjacentes dans l'ordre FFTT)
+  const r1 = [];
+  for (let i = 0; i < bracketSize / 2; i++) {
+    r1.push({
+      id: `${prefix}-r1-${i + 1}`,
+      p1: seeds[2 * i],
+      p2: seeds[2 * i + 1],
+    });
+  }
+
+  // Génération automatique des rounds suivants
+  const allRounds = [r1];
+  let roundNum = 2;
+  while (allRounds[allRounds.length - 1].length > 1) {
+    const prev = allRounds[allRounds.length - 1];
+    const isR1 = allRounds.length === 1; // true seulement pour générer R2 depuis R1
+    const newRound = [];
+    for (let i = 0; i < prev.length; i += 2) {
+      const matchA = prev[i];
+      const matchB = prev[i + 1] || null;
+      newRound.push({
+        id: `${prefix}-r${roundNum}-${i / 2 + 1}`,
+        p1: resolveMatch(matchA, 'winner', isR1),
+        p2: resolveMatch(matchB, 'winner', isR1),
+      });
+    }
+    allRounds.push(newRound);
+    roundNum++;
+  }
+
+  // Match pour la 3e place (entre les perdants des demi-finales)
+  const semiRound = allRounds.length >= 2 ? allRounds[allRounds.length - 2] : null;
+  const thirdPlaceMatch = (semiRound && semiRound.length === 2) ? {
+    id: `${prefix}-3rd`,
+    label: '3e place',
+    p1: resolveMatch(semiRound[0], 'loser', false),
+    p2: resolveMatch(semiRound[1], 'loser', false),
+  } : null;
+
+  // Nom du round selon position dans le bracket
+  const roundLabel = (roundIdx, total) => {
+    const fromEnd = total - 1 - roundIdx;
+    if (fromEnd === 0) return 'Finale';
+    if (fromEnd === 1) return 'Demi-finales';
+    if (fromEnd === 2) return 'Quarts de finale';
+    if (fromEnd === 3) return 'Huitièmes de finale';
+    return `${Math.pow(2, fromEnd)}e de finale`;
+  };
+
+  // Modal
+  const openModal = (matchId, p1, p2) => {
+    if (!p1 || !p2) return;
+    const ex = bracketResults[matchId];
+    setScore({ p1: ex ? String(ex.score1) : '', p2: ex ? String(ex.score2) : '' });
+    setModal({ matchId, p1, p2 });
+    setTimeout(() => firstInputRef.current?.focus(), 50);
+  };
+
+  const saveResult = () => {
+    if (!autoWinner || !modal) return;
+    onUpdateBracketResults(prev => ({
+      ...prev,
+      [modal.matchId]: { p1: modal.p1, p2: modal.p2, winner: autoWinner, score1: parseInt(score.p1), score2: parseInt(score.p2) },
+    }));
+    setModal(null);
+  };
+
+  const clearResult = (matchId, e) => {
+    e.stopPropagation();
+    onUpdateBracketResults(prev => { const n = { ...prev }; delete n[matchId]; return n; });
+  };
+
+  // Composants visuels
+  const PlayerRow = ({ player, isWinner, sc }) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: isWinner ? `${accentColor}15` : 'transparent', opacity: player ? 1 : 0.35 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        {isWinner && <i className="fas fa-trophy" style={{ color: accentColor, fontSize: 10 }}></i>}
+        <span style={{ fontSize: 12, fontWeight: isWinner ? 700 : 500, color: t.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 130 }}>
+          {player ? player.name : '—'}
+        </span>
+      </div>
+      {sc !== undefined && sc !== '' && (
+        <span style={{ fontSize: 12, fontWeight: 700, color: isWinner ? accentColor : t.textSecondary, flexShrink: 0 }}>{sc}</span>
+      )}
+    </div>
+  );
+
+  const MatchCard = ({ match, isHighlight, customLabel }) => {
+    const r = bracketResults[match.id];
+    const winner = r?.winner;
+    const canPlay = match.p1 && match.p2;
+    return (
+      <div onClick={() => canPlay && openModal(match.id, match.p1, match.p2)}
+        style={{ background: t.cardBg, border: `1.5px solid ${isHighlight ? accentColor : t.tableBorder}`, borderRadius: t.cardRadius, overflow: 'hidden', cursor: canPlay ? 'pointer' : 'default', boxShadow: isHighlight ? `0 0 0 3px ${accentColor}25` : t.cardShadow, minWidth: 170, userSelect: 'none' }}>
+        {(isHighlight || r || customLabel) && (
+          <div style={{ padding: '4px 10px', background: isHighlight ? accentColor : t.tableHeaderBg, borderBottom: `1px solid ${t.tableBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {(isHighlight || customLabel) && <span style={{ fontSize: 10, fontWeight: 700, color: isHighlight ? '#fff' : t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px' }}>{isHighlight ? (type === 'principal' ? 'Finale' : 'Finale cons.') : customLabel}</span>}
+            {!isHighlight && !customLabel && <span></span>}
+            {r && <button onClick={e => clearResult(match.id, e)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: isHighlight ? 'rgba(255,255,255,.7)' : t.textSecondary, fontSize: 10, padding: 0 }}><i className="fas fa-times"></i></button>}
+          </div>
+        )}
+        <PlayerRow player={match.p1} isWinner={winner === 1} sc={r?.score1} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px' }}>
+          <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
+          <span style={{ fontSize: 9, fontWeight: 700, color: t.textSecondary, opacity: 0.5, letterSpacing: '.5px' }}>VS</span>
+          <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
+        </div>
+        <PlayerRow player={match.p2} isWinner={winner === 2} sc={r?.score2} />
+      </div>
+    );
+  };
+
+  const ColHeader = ({ label }) => (
+    <div style={{ fontSize: 10, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10, whiteSpace: 'nowrap' }}>{label}</div>
+  );
+
+  const Arrow = ({ count }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-around', padding: '28px 6px 0', flexShrink: 0 }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+          <div style={{ width: 20, height: 1, background: t.tableBorder }}></div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const totalRounds = allRounds.length;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ background: accentColor, color: '#fff', borderRadius: 6, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>{title}</span>
+        <span style={{ fontSize: 12, color: t.textSecondary }}>
+          {pools.length} poules · tableau de {bracketSize} · {totalRounds} tour{totalRounds > 1 ? 's' : ''}
+        </span>
+        <span style={{ fontSize: 12, color: t.textSecondary }}>· Cliquez sur un match pour entrer le résultat</span>
+      </div>
+
+      <div style={{ display: 'flex', gap: 0, alignItems: 'stretch', overflowX: 'auto', paddingBottom: 12 }}>
+        {allRounds.map((round, rIdx) => {
+          const isLastRound = rIdx === totalRounds - 1;
+          const label = roundLabel(rIdx, totalRounds);
+          const nextCount = isLastRound ? 0 : Math.ceil(round.length / 2);
+
+          if (isLastRound) {
+            // Colonne finale : finale + 3e place
+            const finalMatch = round[0];
+            return (
+              <React.Fragment key={rIdx}>
+                <Arrow count={nextCount || 1} />
+                <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, alignSelf: 'stretch', minWidth: 185 }}>
+                  <ColHeader label={label} />
+                  <div style={{ flex: 1, position: 'relative' }}>
+                    <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: '100%' }}>
+                      <MatchCard match={finalMatch} isHighlight={true} />
+                    </div>
+                    {thirdPlaceMatch && (
+                      <div style={{ position: 'absolute', bottom: 0, width: '100%' }}>
+                        <div style={{ borderTop: `2px dashed ${t.textSecondary}`, paddingTop: 10, opacity: 0.35 }}></div>
+                        <MatchCard match={thirdPlaceMatch} isHighlight={false} customLabel="3e place" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </React.Fragment>
+            );
+          }
+
+          return (
+            <React.Fragment key={rIdx}>
+              {rIdx > 0 && <Arrow count={nextCount} />}
+              <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+                <ColHeader label={label} />
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-around', gap: 10 }}>
+                  {round.map(m => <MatchCard key={m.id} match={m} isHighlight={false} />)}
+                </div>
+              </div>
+            </React.Fragment>
+          );
+        })}
+      </div>
+
+      {/* Modal saisie scores */}
+      {modal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }} onClick={() => setModal(null)}>
+          <div style={{ background: t.cardBg, borderRadius: 16, padding: 28, width: 320, boxShadow: '0 16px 48px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: t.textPrimary, marginBottom: 20 }}>Entrer le résultat</div>
+
+            {[{ key: 'p1', player: modal.p1 }, { key: 'p2', player: modal.p2 }].map(({ key, player }) => (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                <div style={{ flex: 1, fontSize: 14, fontWeight: 600, color: t.textPrimary }}>{player.name}</div>
+                <input type="number" min="0" max="3" value={score[key]}
+                  onChange={e => setScore(s => ({ ...s, [key]: e.target.value }))}
+                  ref={key === 'p1' ? firstInputRef : null}
+                  style={{ width: 56, padding: '8px', borderRadius: 8, border: `1.5px solid ${t.inputBorder}`, background: t.inputBg, fontSize: 22, fontWeight: 700, textAlign: 'center', color: t.textPrimary, outline: 'none' }} />
+              </div>
+            ))}
+
+            {autoWinner && (
+              <div style={{ padding: '10px 14px', borderRadius: 10, background: `${accentColor}12`, border: `1px solid ${accentColor}40`, textAlign: 'center', margin: '8px 0 16px' }}>
+                <i className="fas fa-trophy" style={{ color: '#FFA500', marginRight: 6 }}></i>
+                <span style={{ fontWeight: 700, fontSize: 14, color: t.textPrimary }}>
+                  {autoWinner === 1 ? modal.p1.name : modal.p2.name}
+                </span>
+                <span style={{ fontSize: 13, color: t.textSecondary, marginLeft: 4 }}>gagne le match</span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, marginTop: autoWinner ? 0 : 16 }}>
+              <button onClick={() => setModal(null)} style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                Annuler
+              </button>
+              <button onClick={saveResult} disabled={!autoWinner}
+                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: autoWinner ? accentColor : t.tableBorder, color: '#fff', fontWeight: 700, fontSize: 13, cursor: autoWinner ? 'pointer' : 'not-allowed', opacity: autoWinner ? 1 : 0.5 }}>
+                <i className="fas fa-save" style={{ marginRight: 6 }}></i>Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+Object.assign(window, { KnockoutScreen });
+
+</script>
+<script type="text/babel" src="BarrageScreen.jsx?v=2"></script>
+<script type="text/babel" src="ConsolanteScreen.jsx?v=1"></script>
+
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme": "classique",
+  "screen": "barrage"
+}/*EDITMODE-END*/;
+
+const THEME_LABELS = { classique: 'A — Classique', sport: 'B — Sport' };
+
+const loadState = (key, def) => {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
+};
+const saveState = (key, val) => {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+};
+
+const App = () => {
+  const savedTweaks = loadState('ertt-tweaks', {});
+  const [theme, setTheme] = React.useState(savedTweaks.theme || TWEAK_DEFAULTS.theme);
+  const [screen, setScreen] = React.useState(savedTweaks.screen || TWEAK_DEFAULTS.screen);
+
+  // Shared state
+  const [players, setPlayers] = React.useState(() => loadState('ertt-players', []));
+  const [pools, setPools] = React.useState(() => loadState('ertt-pools', []));
+  const [results, setResults] = React.useState(() => loadState('ertt-results', {}));
+  const [bracketResults, setBracketResults] = React.useState(() => loadState('ertt-bracket-results', {}));
+  const [barrageResults, setBarrageResults] = React.useState(() => loadState('ertt-barrage-results', {}));
+
+  // Persist shared state
+  React.useEffect(() => { saveState('ertt-players', players); }, [players]);
+  React.useEffect(() => { saveState('ertt-pools', pools); }, [pools]);
+  React.useEffect(() => { saveState('ertt-results', results); }, [results]);
+  React.useEffect(() => { saveState('ertt-bracket-results', bracketResults); }, [bracketResults]);
+  React.useEffect(() => { saveState('ertt-barrage-results', barrageResults); }, [barrageResults]);
+
+  const handleTheme = (v) => {
+    setTheme(v);
+    saveState('ertt-tweaks', { theme: v, screen });
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { theme: v } }, '*');
+  };
+
+  const handleScreen = (v) => {
+    setScreen(v);
+    saveState('ertt-tweaks', { theme, screen: v });
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { screen: v } }, '*');
+  };
+
+  // Tweaks panel wiring
+  React.useEffect(() => {
+    const el = document.getElementById('tweak-theme');
+    if (!el) return;
+    el.innerHTML = '';
+    Object.entries(THEME_LABELS).forEach(([k, v]) => {
+      const btn = document.createElement('button');
+      btn.className = 'tweak-btn' + (theme === k ? ' active' : '');
+      btn.textContent = v;
+      btn.onclick = () => handleTheme(k);
+      el.appendChild(btn);
+    });
+  }, [theme]);
+
+  React.useEffect(() => {
+    window.addEventListener('message', (e) => {
+      if (e.data?.type === '__activate_edit_mode')   document.getElementById('tweaks-panel').classList.add('open');
+      if (e.data?.type === '__deactivate_edit_mode') document.getElementById('tweaks-panel').classList.remove('open');
+    });
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+  }, []);
+
+  const screenMap = {
+    poules:     <PoolsScreen    theme={theme} players={players} pools={pools} onUpdatePlayers={setPlayers} onUpdatePools={setPools} />,
+    brackets:   <BracketsScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} />,
+    resultats:  <ResultsScreen  theme={theme} players={players} pools={pools} results={results} onUpdateResults={setResults} />,
+    barrage:    <BarrageScreen  theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} onUpdateBarrageResults={setBarrageResults} />,
+    principal:  <KnockoutScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} type="principal" />,
+    consolante: <ConsolanteScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} />,
+  };
+
+  return (
+    <AppShell theme={theme} screen={screen} onNav={handleScreen} tournamentName="Tournoi Amical Printemps 2026">
+      {screenMap[screen]}
+    </AppShell>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
