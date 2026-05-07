@@ -1,5 +1,5 @@
 # Table tennis tournament management
-Organize a friendly table tennis tournament within your club.
+Organize a friendly table tennis tournament within your club or enterprise.
 
 ## Steps
 1. Create players and pools
