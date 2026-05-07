@@ -66,11 +66,42 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
 
   const directConsolanteEntries = directConsolante.map(x => ({ player: x.player, label: `3e direct (${x.poolLabel})` }));
 
-  const eligibleList = [
+  const eligibleListRaw = [
     ...barrageLosers,
     ...directConsolanteEntries,
     ...fourths,
   ];
+
+  // ── Calcul des têtes de série ────────────────────────────────────────────
+  // Stats par joueur (toutes poules confondues) pour ordonner les TS
+  const playerStats = {};
+  pools.forEach(pool => {
+    poolStandings(pool).forEach(s => {
+      playerStats[s.id] = { v: s.v, diff: (s.sf || 0) - (s.sa || 0), pointDiff: (s.pf || 0) - (s.pa || 0) };
+    });
+  });
+
+  // Priorité de catégorie : perdants barrage > 3e direct > 4e
+  const categoryRank = (label) => {
+    if (label?.startsWith('Perdant barrage')) return 0;
+    if (label?.startsWith('3e direct')) return 1;
+    return 2;
+  };
+
+  const seedOrder = [...eligibleListRaw]
+    .map((e, i) => ({ ...e, _i: i }))
+    .sort((a, b) => {
+      const ca = categoryRank(a.label), cb = categoryRank(b.label);
+      if (ca !== cb) return ca - cb;
+      const sa = playerStats[a.player.id] || { v: 0, diff: 0, pointDiff: 0 };
+      const sb = playerStats[b.player.id] || { v: 0, diff: 0, pointDiff: 0 };
+      return sb.v - sa.v || sb.diff - sa.diff || sb.pointDiff - sa.pointDiff || a._i - b._i;
+    });
+
+  const seedMap = {};
+  seedOrder.forEach((e, i) => { seedMap[e.player.id] = i + 1; });
+
+  const eligibleList = eligibleListRaw.map(e => ({ ...e, seed: seedMap[e.player.id] }));
 
   // ── State ────────────────────────────────────────────────────────────────
   // Taille du bracket calculée dynamiquement selon le nombre de joueurs éligibles
@@ -143,6 +174,46 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     setSeeds(prev => { const next = [...prev]; next[idx] = null; return next; });
   };
 
+  // Tableau de placement officiel pour 16 joueurs (ordre des slots)
+  const SEEDING_PATTERN_16 = [1, 16, 13, 8, 5, 12, 9, 4, 3, 14, 11, 6, 7, 10, 15, 2];
+
+  // Génère un pattern de seeding standard pour n'importe quelle taille (puissance de 2)
+  // Construction récursive : à chaque étape, on intercale les seeds (size+1 - existant)
+  // pour que TS1 vs TSN, TS2 vs TSN-1, etc. à chaque tour.
+  const buildSeedingPattern = (size) => {
+    if (size === 16) return SEEDING_PATTERN_16;
+    let order = [1, 2];
+    let s = 2;
+    while (s < size) {
+      const ns = s * 2;
+      const next = [];
+      order.forEach(v => {
+        next.push(v);
+        next.push(ns + 1 - v);
+      });
+      order = next;
+      s = ns;
+    }
+    return order;
+  };
+
+  const autoPlace = () => {
+    const seedToEntry = {};
+    eligibleList.forEach(e => { seedToEntry[e.seed] = e; });
+    const pattern = buildSeedingPattern(bracketSize);
+
+    // Place tous les joueurs selon le pattern (réécrit les slots).
+    // Les seeds sans joueur correspondant deviennent des byes — ils tombent
+    // naturellement face aux meilleures TS (TS1 affronte le bye de seed le + élevé, etc.)
+    const next = Array(bracketSize).fill(null);
+    for (let slot = 0; slot < bracketSize; slot++) {
+      const targetSeed = pattern[slot];
+      const entry = seedToEntry[targetSeed];
+      if (entry) next[slot] = entry.player;
+    }
+    setSeeds(next);
+  };
+
   const clearAll = () => {
     setSeeds(Array(bracketSize).fill(null));
     onUpdateBracketResults(prev => {
@@ -175,8 +246,8 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   for (let i = 0; i < bracketSize / 2; i++) {
     r1.push({
       id: `${prefix}-r1-${i + 1}`,
-      p1: seeds[i] || null,
-      p2: seeds[bracketSize - 1 - i] || null,
+      p1: seeds[i * 2] || null,
+      p2: seeds[i * 2 + 1] || null,
     });
   }
 
@@ -327,17 +398,25 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
           <div style={{ width: 220, flexShrink: 0 }}
             onDragOver={e => e.preventDefault()}
             onDrop={handleDropList}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10 }}>
-              Joueurs à placer ({unplaced.length})
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px' }}>
+                Joueurs à placer ({unplaced.length})
+              </div>
+              <button onClick={autoPlace}
+                title="Place automatiquement les joueurs selon les têtes de série (réinitialise les slots, vous pouvez ensuite intervertir manuellement)"
+                style={{ padding: '5px 10px', borderRadius: 6, border: `1.5px solid ${accentColor}`, background: `${accentColor}12`, color: accentColor, fontWeight: 700, fontSize: 10, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.4px', whiteSpace: 'nowrap' }}>
+                <i className="fas fa-magic" style={{ marginRight: 5 }}></i>Auto
+              </button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {unplaced.map((entry, i) => (
                 <div key={entry.player.id} draggable
                   onDragStart={e => handleDragStartList(e, entry)}
                   style={{ background: t.cardBg, border: `1.5px solid ${t.tableBorder}`, borderRadius: 8, padding: '8px 12px', cursor: 'grab', userSelect: 'none', display: 'flex', flexDirection: 'column', gap: 2, boxShadow: t.cardShadow }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary }}>
-                    <i className="fas fa-grip-vertical" style={{ color: t.textSecondary, fontSize: 10, marginRight: 6, opacity: 0.5 }}></i>
-                    {entry.player.name}
+                  <span style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <i className="fas fa-grip-vertical" style={{ color: t.textSecondary, fontSize: 10, opacity: 0.5 }}></i>
+                    <span style={{ background: `${accentColor}20`, color: accentColor, fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, minWidth: 20, textAlign: 'center' }}>TS{entry.seed}</span>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.player.name}</span>
                   </span>
                   <span style={{ fontSize: 10, color: t.textSecondary, marginLeft: 18 }}>{entry.label}</span>
                 </div>
@@ -378,7 +457,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
                       </>
                     ) : (
                       <span style={{ fontSize: 12, color: t.textSecondary, opacity: 0.4, fontStyle: 'italic' }}>
-                        {isOver ? 'Déposer ici' : 'Bye'}
+                        {isOver ? 'Déposer ici' : ''}
                       </span>
                     )}
                   </div>
