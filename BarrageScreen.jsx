@@ -8,9 +8,7 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, onUpdat
   const firstInputRef = React.useRef(null);
 
   const SETS_TO_WIN = 3;
-  // Taille du bracket = prochaine puissance de 2 >= nb qualifiés directs (1er + 2e par poule)
   const nextPow2 = (n) => { let b = 1; while (b < n) b *= 2; return b; };
-  const BRACKET_SIZE = nextPow2(pools.length * 2);
   const accentColor = '#f79025';
 
   const autoWinner = (() => {
@@ -46,11 +44,10 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, onUpdat
     return stats.sort((a, b) => b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa));
   };
 
-  // Calcul des qualifiés automatiques (1ers + 2es) et des places manquantes
-  const autoQualifiers = pools.length * 2; // 1er + 2e de chaque poule
-  const missingSpots = Math.max(0, BRACKET_SIZE - autoQualifiers); // places à remplir via 3es
+  // Qualifiés automatiques (1ers + 2es)
+  const autoQualifiers = pools.length * 2;
 
-  // Tous les 3es de poule, avec leurs stats pour départager les ex-æquo
+  // 3es de chaque poule
   const thirdPlacePlayers = pools.map((pool, idx) => {
     const standings = poolStandings(pool);
     const p = standings[2] || null;
@@ -59,12 +56,44 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, onUpdat
     return { player: p, poolLabel: String.fromCharCode(65 + idx), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
   }).filter(Boolean);
 
-  // barrageMatchCount = missingSpots : chaque match produit 1 vainqueur qui occupe 1 spot
-  // Les MEILLEURS 3es jouent les barrages, les autres vont directement en consolante
-  const barrageMatchCount = missingSpots;
+  // 2es de chaque poule (utiles pour le cas "éliminer les moins bons 2es")
+  const secondPlacePlayers = pools.map((pool, idx) => {
+    const standings = poolStandings(pool);
+    const p = standings[1] || null;
+    if (!p) return null;
+    const stats = standings.find(s => s.id === p.id);
+    return { player: p, poolLabel: String.fromCharCode(65 + idx), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
+  }).filter(Boolean);
+
+  // Détermination de la taille du tableau principal selon la logique :
+  // essayer puissances de 2 en descendant depuis nextPow2(qualifiés)
+  //   missing == 0         → tableau direct
+  //   0 < missing <= 3es   → organiser `missing` barrages parmi les meilleurs 3es
+  //   missing < 0          → éliminer |missing| moins bons 2es
+  //   missing > 3es        → essayer la taille inférieure
+  const computeStructure = () => {
+    const thirdsCount = thirdPlacePlayers.length;
+    let size = nextPow2(autoQualifiers);
+    while (size >= 2) {
+      const missing = size - autoQualifiers;
+      if (missing === 0) return { bracketSize: size, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
+      if (missing > 0 && missing <= thirdsCount) return { bracketSize: size, mode: 'barrage', barrageCount: missing, eliminateCount: 0 };
+      if (missing < 0) return { bracketSize: size, mode: 'eliminate', barrageCount: 0, eliminateCount: -missing };
+      size = size / 2;
+    }
+    return { bracketSize: 2, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
+  };
+  const struct = computeStructure();
+  const BRACKET_SIZE = struct.bracketSize;
+  const missingSpots = struct.barrageCount;
+  const barrageMatchCount = struct.barrageCount;
   const sortedDesc = [...thirdPlacePlayers].sort((a, b) => b.v - a.v || b.diff - a.diff || b.pointDiff - a.pointDiff);
-  const barrageEligible = sortedDesc.slice(0, barrageMatchCount * 2);
+  const barrageEligible = struct.mode === 'barrage' ? sortedDesc.slice(0, barrageMatchCount * 2) : [];
   const directConsolante = thirdPlacePlayers.filter(x => !barrageEligible.find(e => e.poolId === x.poolId));
+
+  // 2es éliminés (les moins bons) si applicable
+  const sortedSecondsAsc = [...secondPlacePlayers].sort((a, b) => a.v - b.v || a.diff - b.diff || a.pointDiff - b.pointDiff);
+  const eliminatedSeconds = struct.mode === 'eliminate' ? sortedSecondsAsc.slice(0, struct.eliminateCount) : [];
 
   // Construction des matchs de barrage (paires)
   const barrageMatches = [];
@@ -102,8 +131,8 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, onUpdat
     onUpdateBarrageResults(prev => { const n = { ...prev }; delete n[matchId]; return n; });
   };
 
-  // Cas : aucun barrage nécessaire
-  if (missingSpots === 0) {
+  // Cas : aucun barrage nécessaire (tableau direct)
+  if (struct.mode === 'direct') {
     return (
       <div style={{ padding: '48px', textAlign: 'center', color: t.textSecondary, background: t.cardBg, borderRadius: t.cardRadius, border: `1px dashed ${t.tableBorder}` }}>
         <i className="fas fa-check-circle" style={{ fontSize: 32, display: 'block', marginBottom: 12, color: '#20bf6b', opacity: .8 }}></i>
@@ -116,11 +145,82 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, onUpdat
     );
   }
 
+  // Cas : éliminer les moins bons 2es (le tableau principal est trop petit pour tous les 2es)
+  if (struct.mode === 'eliminate') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ background: accentColor, color: '#fff', borderRadius: 6, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>Barrage</span>
+          <span style={{ fontSize: 12, color: t.textSecondary }}>
+            Tableau principal de {BRACKET_SIZE} · {struct.eliminateCount} 2e{struct.eliminateCount > 1 ? 's' : ''} éliminé{struct.eliminateCount > 1 ? 's' : ''} · aucun barrage
+          </span>
+        </div>
+        <div style={{ padding: '32px 24px', background: t.cardBg, border: `1.5px solid ${t.tableBorder}`, borderRadius: t.cardRadius }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>
+            <i className="fas fa-info-circle" style={{ color: accentColor, marginRight: 8 }}></i>
+            Tableau principal réduit à {BRACKET_SIZE}
+          </div>
+          <div style={{ fontSize: 13, color: t.textSecondary, lineHeight: 1.6, marginBottom: 18 }}>
+            Avec {pools.length} poules il y aurait {autoQualifiers} qualifiés directs, mais il n'y a pas assez de 3es pour combler un tableau de {nextPow2(autoQualifiers)}.
+            Le tableau est donc ramené à {BRACKET_SIZE} : les {struct.eliminateCount} moins bons 2es sont éliminés du tableau principal.
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10 }}>
+            2es éliminés
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {eliminatedSeconds.map(({ player, poolLabel }) => (
+              <div key={poolLabel} style={{ background: t.tableHeaderBg, border: `1px solid ${t.tableBorder}`, borderRadius: 8, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#f96b6b' }}>{poolLabel}2</span>
+                <span style={{ fontSize: 13, color: t.textPrimary }}>{player.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (pools.length === 0) {
     return (
       <div style={{ padding: '60px', textAlign: 'center', color: t.textSecondary }}>
         <i className="fas fa-code-branch" style={{ fontSize: 32, display: 'block', marginBottom: 12, opacity: .3 }}></i>
         <div style={{ fontSize: 15, fontWeight: 600 }}>Aucune poule configurée</div>
+      </div>
+    );
+  }
+
+  // Vérifie si tous les matchs de poules ont été joués
+  let totalPoolMatches = 0, playedPoolMatches = 0;
+  pools.forEach(pool => {
+    const ids = pool.playerIds;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        totalPoolMatches++;
+        if (results[`pool-${pool.id}-${ids[i]}-${ids[j]}`]) playedPoolMatches++;
+      }
+    }
+  });
+
+  if (playedPoolMatches < totalPoolMatches) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ background: accentColor, color: '#fff', borderRadius: 6, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>Barrage</span>
+        </div>
+        <div style={{ padding: '64px 24px', textAlign: 'center', background: t.cardBg, border: `1.5px dashed ${t.tableBorder}`, borderRadius: t.cardRadius, color: t.textSecondary }}>
+          <div style={{ width: 64, height: 64, margin: '0 auto 18px', borderRadius: '50%', background: `${accentColor}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <i className="fas fa-hourglass-half" style={{ fontSize: 26, color: accentColor }}></i>
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>Barrages pas encore disponibles</div>
+          <div style={{ fontSize: 13, maxWidth: 380, margin: '0 auto 20px', lineHeight: 1.5 }}>
+            Termine les matchs de poules pour que les 3es soient déterminés et que les barrages puissent être générés.
+          </div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 16, padding: '12px 20px', borderRadius: 10, background: t.tableHeaderBg, fontSize: 12 }}>
+            <span><i className="fas fa-table-tennis-paddle-ball" style={{ marginRight: 6, opacity: 0.5 }}></i><strong style={{ color: t.textPrimary }}>{playedPoolMatches}</strong> / {totalPoolMatches} matchs joués</span>
+            <span style={{ width: 1, height: 14, background: t.tableBorder }}></span>
+            <span><i className="fas fa-layer-group" style={{ marginRight: 6, opacity: 0.5 }}></i><strong style={{ color: t.textPrimary }}>{pools.length}</strong> poule{pools.length > 1 ? 's' : ''}</span>
+          </div>
+        </div>
       </div>
     );
   }

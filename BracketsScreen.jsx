@@ -86,6 +86,20 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
     const totalPlayers = pools.reduce((acc, p) => acc + p.playerIds.length, 0);
     const n = pools.length;
 
+    const totalPoolMatchesPlayed = Object.keys(results || {}).filter(k => k.startsWith('pool-')).length;
+    if (totalPoolMatchesPlayed === 0) {
+      return (
+        <div>
+          {renderTabs()}
+          <div style={{ padding: '60px', textAlign: 'center', color: t.textSecondary, background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}` }}>
+            <i className="fas fa-trophy" style={{ fontSize: 32, display: 'block', marginBottom: 12, opacity: .3 }}></i>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: t.textPrimary }}>En attente des résultats de poule</div>
+            <div style={{ fontSize: 13 }}>Le classement des qualifiés sera généré dès que les matchs de poule auront commencé.</div>
+          </div>
+        </div>
+      );
+    }
+
     // Construire les stats de chaque joueur (par poule), avec poolName/poolColor/rang dans la poule
     const buildStats = () => {
       const all = [];
@@ -144,23 +158,42 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
     const firsts  = sortByPerf(allStats.filter(s => s.poolRank === 1));
     const seconds = sortByPerf(allStats.filter(s => s.poolRank === 2));
 
-    // Vainqueurs de barrage — reproduit la logique de BarrageScreen / KnockoutScreen
+    // Logique synchronisée avec BarrageScreen
     const nextPow2 = (k) => { let b = 1; while (b < k) b *= 2; return b; };
-    const principalBracketSize = nextPow2(n * 2);
     const autoQualifiers = n * 2;
-    const missingSpots = Math.max(0, principalBracketSize - autoQualifiers);
 
     const thirdPlayers = pools.map(pool => {
       const tStats = allStats.filter(s => s.poolId === pool.id && s.poolRank === 3)[0];
       return tStats ? { player: tStats, poolId: pool.id } : null;
     }).filter(Boolean);
 
+    const computeStructure = () => {
+      const tc = thirdPlayers.length;
+      let size = nextPow2(autoQualifiers);
+      while (size >= 2) {
+        const missing = size - autoQualifiers;
+        if (missing === 0) return { bracketSize: size, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
+        if (missing > 0 && missing <= tc) return { bracketSize: size, mode: 'barrage', barrageCount: missing, eliminateCount: 0 };
+        if (missing < 0) return { bracketSize: size, mode: 'eliminate', barrageCount: 0, eliminateCount: -missing };
+        size = size / 2;
+      }
+      return { bracketSize: 2, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
+    };
+    const struct = computeStructure();
+
+    // Mode 'eliminate' : retirer les `eliminateCount` moins bons 2es du tableau principal
+    let keptSeconds = seconds;
+    if (struct.mode === 'eliminate') {
+      const cut = struct.eliminateCount;
+      keptSeconds = seconds.slice(0, Math.max(0, seconds.length - cut));
+    }
+
     const sortedThird = [...thirdPlayers].sort((a, b) =>
       b.player.v - a.player.v
       || (b.player.setsFor - b.player.setsAgainst) - (a.player.setsFor - a.player.setsAgainst)
       || (b.player.ptsFor - b.player.ptsAgainst) - (a.player.ptsFor - a.player.ptsAgainst)
     );
-    const eligible = sortedThird.slice(0, missingSpots * 2);
+    const eligible = struct.mode === 'barrage' ? sortedThird.slice(0, struct.barrageCount * 2) : [];
     const barrageWinners = [];
     for (let i = 0; i < eligible.length; i += 2) {
       const a = eligible[i], b = eligible[i + 1];
@@ -176,13 +209,13 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
       }
     }
 
-    const QUALIFIED = firsts.length + seconds.length + barrageWinners.length;
+    const QUALIFIED = firsts.length + keptSeconds.length + barrageWinners.length;
 
     // Construction du classement final par groupes
     // 1..n : 1ers   |   n+1..2n : 2es   |   2n+1..QUALIFIED : vainqueurs barrage
     const ranked = [
       ...firsts.map(s  => ({ ...s, group: '1er',     groupColor: '#20bf6b' })),
-      ...seconds.map(s => ({ ...s, group: '2e',      groupColor: '#0e92f0' })),
+      ...keptSeconds.map(s => ({ ...s, group: '2e',      groupColor: '#0e92f0' })),
       ...barrageWinners.map(s => s
         ? { ...s, group: 'Barrage', groupColor: '#fb8c04' }
         : { id: `pending-${Math.random()}`, name: 'Vainqueur barrage à venir', poolName: '—', poolColor: t.textSecondary, poolRank: 3, v: 0, d: 0, setsFor: 0, setsAgainst: 0, ptsFor: 0, ptsAgainst: 0, group: 'Barrage', groupColor: '#fb8c04', pending: true }
@@ -209,7 +242,11 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
             <i className="fas fa-list-ol" style={{ color: t.primary, fontSize: 18 }}></i>
             <div>
               <div style={{ fontSize: 11, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', fontWeight: 700 }}>Critères</div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary }}>1ers → 2es → Vainqueurs barrage</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary }}>
+                {struct.mode === 'direct' && '1ers → 2es (tableau direct)'}
+                {struct.mode === 'barrage' && `1ers → 2es → ${struct.barrageCount} vainqueur${struct.barrageCount > 1 ? 's' : ''} barrage`}
+                {struct.mode === 'eliminate' && `1ers → ${keptSeconds.length} meilleurs 2es (${struct.eliminateCount} 2e${struct.eliminateCount > 1 ? 's' : ''} éliminé${struct.eliminateCount > 1 ? 's' : ''})`}
+              </div>
             </div>
           </div>
         </div>

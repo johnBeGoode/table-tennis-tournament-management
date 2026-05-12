@@ -41,7 +41,6 @@
   </div>
 </div>
 
-<script src="init-data.js"></script>
 <script type="text/babel" src="AppShell.jsx?v=2"></script>
 <script type="text/babel" src="PoolsScreen.jsx?v=2"></script>
 <script type="text/babel" src="BracketsScreen.jsx?v=2"></script>
@@ -109,33 +108,52 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     );
   }
 
-  // Taille du bracket principal = prochaine puissance de 2 >= 1ers+2es
+  // Aucun résultat de poule → tableau vide en attente
+  const totalPoolMatchesPlayed = Object.keys(results || {}).filter(k => k.startsWith('pool-')).length;
+  if (totalPoolMatchesPlayed === 0) {
+    return (
+      <div style={{ padding: '60px', textAlign: 'center', color: t.textSecondary }}>
+        <i className={type === 'principal' ? 'fas fa-trophy' : 'fas fa-shield-halved'} style={{ fontSize: 32, display: 'block', marginBottom: 12, opacity: .3 }}></i>
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>En attente des résultats de poule</div>
+        <div style={{ fontSize: 13 }}>Le {title.toLowerCase()} sera généré dès que les matchs de poule auront commencé.</div>
+      </div>
+    );
+  }
+
+  // Structure adaptative — synchronisée avec BarrageScreen / BracketsScreen
   const nextPow2 = (n) => { let b = 1; while (b < n) b *= 2; return b; };
-  const principalBracketSize = nextPow2(pools.length * 2);
-  const principalMissingSpots = Math.max(0, principalBracketSize - pools.length * 2);
-  const barrageCount = Math.max(0, pools.length - principalMissingSpots); // nb matchs de barrage
-  // Consolante : perdants de barrage + 4es de poule
-  const consolanteTotalPlayers = barrageCount + pools.length;
-  const bracketSize = type === 'principal' ? principalBracketSize : nextPow2(consolanteTotalPlayers);
+  const poolCount = pools.length;
+  const autoQualifiers = poolCount * 2;
 
-  // Reconstruction des matchs de barrage (même logique que BarrageScreen)
+  // 3es de poule (utiles pour décider du mode)
+  const thirdPlacePlayers = pools.map((pool) => {
+    const st = poolStandings(pool);
+    const p = st[2] || null;
+    if (!p) return null;
+    const stats = st.find(s => s.id === p.id);
+    return { player: p, poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
+  }).filter(Boolean);
+
+  const computeStructure = () => {
+    const tc = thirdPlacePlayers.length;
+    let size = nextPow2(autoQualifiers);
+    while (size >= 2) {
+      const missing = size - autoQualifiers;
+      if (missing === 0) return { bracketSize: size, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
+      if (missing > 0 && missing <= tc) return { bracketSize: size, mode: 'barrage', barrageCount: missing, eliminateCount: 0 };
+      if (missing < 0) return { bracketSize: size, mode: 'eliminate', barrageCount: 0, eliminateCount: -missing };
+      size = size / 2;
+    }
+    return { bracketSize: 2, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
+  };
+  const struct = computeStructure();
+  const principalBracketSize = struct.bracketSize;
+  const barrageCount = struct.barrageCount;
+
+  // Reconstruction des matchs de barrage (mêmes paires que BarrageScreen)
   const computeBarrageMatches = () => {
-    const autoQualifiers = pools.length * 2;
-    const missingSpots = Math.max(0, principalBracketSize - autoQualifiers);
-
-    const thirdPlacePlayers = pools.map((pool) => {
-      const st = poolStandings(pool);
-      const p = st[2] || null;
-      if (!p) return null;
-      const stats = st.find(s => s.id === p.id);
-      return { player: p, poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
-    }).filter(Boolean);
-
-    // Les MEILLEURS 3es jouent les barrages (missingSpots matchs → missingSpots vainqueurs)
-    // Les autres vont directement en consolante
-    const barrageMatchCount = missingSpots;
     const sortedDesc = [...thirdPlacePlayers].sort((a, b) => b.v - a.v || b.diff - a.diff || b.pointDiff - a.pointDiff);
-    const eligible = sortedDesc.slice(0, barrageMatchCount * 2);
+    const eligible = struct.mode === 'barrage' ? sortedDesc.slice(0, barrageCount * 2) : [];
     const directConsolante = thirdPlacePlayers.filter(x => !eligible.find(e => e.poolId === x.poolId));
 
     const matches = [];
@@ -161,60 +179,71 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     return r.winner === 1 ? r.p2 : r.p1;
   });
 
+  // Classement officiel par groupes
+  const sortByPerf = (arr) => [...arr].sort((a, b) =>
+    b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa) || (b.pf - b.pa) - (a.pf - a.pa)
+  );
+  const firstRaw  = pools.map(pool => { const st = poolStandings(pool); const p = st[0]; if (!p) return null; return { ...p, ...st.find(s=>s.id===p.id) }; }).filter(Boolean);
+  const secondRaw = pools.map(pool => { const st = poolStandings(pool); const p = st[1]; if (!p) return null; return { ...p, ...st.find(s=>s.id===p.id) }; }).filter(Boolean);
+  const firstSorted  = sortByPerf(firstRaw);
+  const secondSorted = sortByPerf(secondRaw);
+
+  // En mode 'eliminate' : retirer les moins bons 2es du tableau principal (vers consolante)
+  const eliminatedSeconds = struct.mode === 'eliminate'
+    ? secondSorted.slice(secondSorted.length - struct.eliminateCount)
+    : [];
+  const keptSeconds = struct.mode === 'eliminate'
+    ? secondSorted.slice(0, secondSorted.length - struct.eliminateCount)
+    : secondSorted;
+
+  // Consolante : 2es éliminés + 3es directs + perdants barrage + 4es
+  const consolanteTotalPlayers = eliminatedSeconds.length + directConsolante.length + barrageMatches.length + pools.length;
+  const bracketSize = type === 'principal' ? principalBracketSize : Math.max(2, nextPow2(consolanteTotalPlayers));
+
   // Construction des têtes de série
-  // Tableau principal : 1ers (positions 0..N-1), 2es (positions fin-1..fin-N),
-  //   puis vainqueurs de barrage dans les slots restants du milieu
-  // Consolante : 3es directs + perdants de barrage + 4es
   const seeds = Array(bracketSize).fill(null);
 
   if (type === 'principal') {
-    const n = pools.length; // nb de poules
+    const n = pools.length;
 
-    // Placement standard FFTT pour bracket de 32 (source : 32D-32J-Eliminat.Direc.)
-    // FFTT_32[pos] = numéro de seed placé à cette position (1-indexé)
-    // Seed 1..n = 1ers de poule, seed n+1..2n = 2es de poule, seed 2n+1.. = vainqueurs barrage
+    // Placement standard FFTT (numéro de seed à chaque position, 1-indexé)
     const FFTT_32 = [1,32,17,16,9,24,25,8,5,28,21,12,13,20,29,4,3,30,19,14,11,22,27,6,7,26,23,10,15,18,31,2];
     const FFTT_16 = [1,16,9,8,5,12,13,4,3,14,11,6,7,10,15,2];
     const FFTT_8  = [1,8,5,4,3,6,7,2];
-    const ffttOrder = bracketSize === 16 ? FFTT_16 : bracketSize === 8 ? FFTT_8 : FFTT_32;
+    const FFTT_4  = [1,4,3,2];
+    const FFTT_2  = [1,2];
+    const ffttOrder = bracketSize === 2 ? FFTT_2 : bracketSize === 4 ? FFTT_4 : bracketSize === 8 ? FFTT_8 : bracketSize === 16 ? FFTT_16 : FFTT_32;
 
-    // Classement officiel par groupes (logique tournoi club) :
-    // - Seeds 1..n      = 1ers de poule, triés par V → diff sets → diff points
-    // - Seeds n+1..2n   = 2es de poule, triés par V → diff sets → diff points
-    // - Seeds 2n+1..    = vainqueurs de barrage (dans l'ordre des matchs)
-    const sortByPerf = (arr) => [...arr].sort((a, b) =>
-      b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa) || (b.pf - b.pa) - (a.pf - a.pa)
-    );
-
-    const firstRaw  = pools.map(pool => { const st = poolStandings(pool); const p = st[rankA]; if (!p) return null; return { ...p, ...st.find(s=>s.id===p.id) }; }).filter(Boolean);
-    const secondRaw = pools.map(pool => { const st = poolStandings(pool); const p = st[rankB]; if (!p) return null; return { ...p, ...st.find(s=>s.id===p.id) }; }).filter(Boolean);
-
-    const firstSorted  = sortByPerf(firstRaw);
-    const secondSorted = sortByPerf(secondRaw);
     const barrageSeeds = barrageWinners.filter(Boolean);
 
-    // Table seed numéro → joueur (1-indexé)
+    // Seeds : 1..n = 1ers · n+1..n+kept = 2es retenus · suivant = vainqueurs barrage
     const seedMap = {};
     firstSorted.forEach((p, i)  => { seedMap[i + 1] = p; });
-    secondSorted.forEach((p, i) => { seedMap[n + i + 1] = p; });
-    barrageSeeds.forEach((p, i) => { seedMap[n * 2 + i + 1] = p; });
+    keptSeconds.forEach((p, i)  => { seedMap[n + i + 1] = p; });
+    barrageSeeds.forEach((p, i) => { seedMap[n + keptSeconds.length + i + 1] = p; });
 
-    // Placer chaque seed à sa position dans le bracket
     ffttOrder.forEach((seedNum, pos) => {
       seeds[pos] = seedMap[seedNum] || null;
     });
   } else {
-    // Consolante : trier tous les participants par performance décroissante
-    // Les meilleures têtes de série obtiennent les exemptions (byes)
-    const consolantePlayers = [
-      ...directConsolante,
-      ...barrageLosers.filter(Boolean),
-      ...pools.map(pool => poolStandings(pool)[3]).filter(Boolean),
-    ].sort((a, b) =>
+    // Consolante : ordre par groupe (mieux classé → moins bien classé),
+    // tri par perf à l'intérieur de chaque groupe.
+    //   1. 2es éliminés (mode eliminate uniquement)
+    //   2. Perdants de barrage (= les meilleurs 3es de poule)
+    //   3. 3es directs (= les moins bons 3es, mode barrage uniquement)
+    //   4. 4es de poule
+    const sortPerf = (arr) => [...arr].sort((a, b) =>
       b.v - a.v ||
       (b.sf - b.sa) - (a.sf - a.sa) ||
       (b.pf - b.pa) - (a.pf - a.pa)
     );
+    const fourthRaw = pools.map(pool => poolStandings(pool)[3]).filter(Boolean);
+    const consolantePlayers = [
+      ...sortPerf(eliminatedSeconds),
+      ...sortPerf(barrageLosers.filter(Boolean)),
+      ...sortPerf(directConsolante),
+      ...sortPerf(fourthRaw),
+    ];
 
     // Placement interleaved : pairs en haut du bracket, impairs en bas
     // → seeds 1 & 2 dans des moitiés opposées, top 4 reçoivent les exemptions

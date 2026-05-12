@@ -32,9 +32,8 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     return stats.sort((a, b) => b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa));
   };
 
-  const principalBracketSize = nextPow2(pools.length * 2);
-  const missingSpots = Math.max(0, principalBracketSize - pools.length * 2);
-
+  // Logique synchronisée avec BarrageScreen
+  const autoQualifiers = pools.length * 2;
   const thirds = pools.map((pool, idx) => {
     const st = poolStandings(pool);
     const p = st[2] || null;
@@ -43,9 +42,34 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     return { player: p, poolLabel: String.fromCharCode(65 + idx), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
   }).filter(Boolean);
 
+  const secondsAll = pools.map((pool, idx) => {
+    const st = poolStandings(pool);
+    const p = st[1] || null;
+    if (!p) return null;
+    const stats = st.find(s => s.id === p.id);
+    return { player: p, poolLabel: String.fromCharCode(65 + idx), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
+  }).filter(Boolean);
+
+  const computeStructure = () => {
+    const tc = thirds.length;
+    let size = nextPow2(autoQualifiers);
+    while (size >= 2) {
+      const missing = size - autoQualifiers;
+      if (missing === 0) return { mode: 'direct', barrageCount: 0, eliminateCount: 0 };
+      if (missing > 0 && missing <= tc) return { mode: 'barrage', barrageCount: missing, eliminateCount: 0 };
+      if (missing < 0) return { mode: 'eliminate', barrageCount: 0, eliminateCount: -missing };
+      size = size / 2;
+    }
+    return { mode: 'direct', barrageCount: 0, eliminateCount: 0 };
+  };
+  const struct = computeStructure();
+
   const sortedDesc = [...thirds].sort((a, b) => b.v - a.v || b.diff - a.diff || b.pointDiff - a.pointDiff);
-  const barrageEligible = sortedDesc.slice(0, missingSpots * 2);
+  const barrageEligible = struct.mode === 'barrage' ? sortedDesc.slice(0, struct.barrageCount * 2) : [];
   const directConsolante = thirds.filter(x => !barrageEligible.find(e => e.poolId === x.poolId));
+
+  const sortedSecondsAsc = [...secondsAll].sort((a, b) => a.v - b.v || a.diff - b.diff || a.pointDiff - b.pointDiff);
+  const eliminatedSeconds = struct.mode === 'eliminate' ? sortedSecondsAsc.slice(0, struct.eliminateCount) : [];
 
   const barrageLosers = barrageEligible.reduce((acc, _, i) => {
     if (i % 2 !== 0) return acc;
@@ -65,8 +89,13 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   }).filter(Boolean);
 
   const directConsolanteEntries = directConsolante.map(x => ({ player: x.player, label: `3e direct (${x.poolLabel})` }));
+  const eliminatedSecondsEntries = eliminatedSeconds.map(x => ({ player: x.player, label: `2e éliminé (${x.poolLabel})` }));
 
-  const eligibleListRaw = [
+  // Aucun match de poule joué → pas de joueurs éligibles
+  const totalPoolMatchesPlayed = Object.keys(results || {}).filter(k => k.startsWith('pool-')).length;
+
+  const eligibleListRaw = totalPoolMatchesPlayed === 0 ? [] : [
+    ...eliminatedSecondsEntries,
     ...barrageLosers,
     ...directConsolanteEntries,
     ...fourths,
@@ -83,9 +112,10 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
 
   // Priorité de catégorie : perdants barrage > 3e direct > 4e
   const categoryRank = (label) => {
-    if (label?.startsWith('Perdant barrage')) return 0;
-    if (label?.startsWith('3e direct')) return 1;
-    return 2;
+    if (label?.startsWith('2e éliminé')) return 0;
+    if (label?.startsWith('Perdant barrage')) return 1;
+    if (label?.startsWith('3e direct')) return 2;
+    return 3;
   };
 
   const seedOrder = [...eligibleListRaw]
@@ -369,6 +399,36 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   const [showBracket, setShowBracket] = React.useState(() => {
     return seeds.some(Boolean);
   });
+
+  // ── Vue vide ─────────────────────────────────────────────────────────────
+  if (players.length === 0 || pools.length === 0 || eligibleList.length === 0) {
+    const reason = players.length === 0
+      ? { icon: 'fa-users', title: 'Aucun joueur inscrit', hint: "Ajoute des joueurs dans l'onglet Poules pour démarrer le tournoi." }
+      : pools.length === 0
+      ? { icon: 'fa-layer-group', title: 'Aucune poule configurée', hint: "Crée des poules dans l'onglet Poules pour générer la consolante." }
+      : { icon: 'fa-hourglass-half', title: 'Consolante pas encore disponible', hint: 'Joue les matchs de poules — les 3es et 4es seront automatiquement éligibles ici.' };
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ background: accentColor, color: '#fff', borderRadius: 6, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>Consolante</span>
+        </div>
+        <div style={{ padding: '64px 24px', textAlign: 'center', background: t.cardBg, border: `1.5px dashed ${t.tableBorder}`, borderRadius: t.cardRadius, color: t.textSecondary }}>
+          <div style={{ width: 64, height: 64, margin: '0 auto 18px', borderRadius: '50%', background: `${accentColor}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <i className={`fas ${reason.icon}`} style={{ fontSize: 26, color: accentColor }}></i>
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>{reason.title}</div>
+          <div style={{ fontSize: 13, maxWidth: 380, margin: '0 auto 20px', lineHeight: 1.5 }}>{reason.hint}</div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 16, padding: '12px 20px', borderRadius: 10, background: t.tableHeaderBg, fontSize: 12 }}>
+            <span><i className="fas fa-user" style={{ marginRight: 6, opacity: 0.5 }}></i><strong style={{ color: t.textPrimary }}>{players.length}</strong> joueur{players.length > 1 ? 's' : ''}</span>
+            <span style={{ width: 1, height: 14, background: t.tableBorder }}></span>
+            <span><i className="fas fa-layer-group" style={{ marginRight: 6, opacity: 0.5 }}></i><strong style={{ color: t.textPrimary }}>{pools.length}</strong> poule{pools.length > 1 ? 's' : ''}</span>
+            <span style={{ width: 1, height: 14, background: t.tableBorder }}></span>
+            <span><i className="fas fa-trophy" style={{ marginRight: 6, opacity: 0.5 }}></i><strong style={{ color: t.textPrimary }}>{eligibleList.length}</strong> éligible{eligibleList.length > 1 ? 's' : ''}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
