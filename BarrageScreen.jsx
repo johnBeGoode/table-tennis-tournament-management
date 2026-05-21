@@ -1,13 +1,14 @@
 // BarrageScreen — Matchs de barrage entre 3es de poule
 // Complète le tableau principal si les 1ers+2es ne suffisent pas à atteindre 16 joueurs
 
-const BarrageScreen = ({ theme, players, pools, results, barrageResults, onUpdateBarrageResults }) => {
+const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToWin = 3, onUpdateBarrageResults }) => {
   const t = window.THEMES[theme];
   const [modal, setModal] = React.useState(null);
   const [score, setScore] = React.useState({ p1: '', p2: '' });
   const firstInputRef = React.useRef(null);
 
-  const SETS_TO_WIN = 3;
+  // SETS_TO_WIN suit le réglage de l'écran Poules (2 ou 3 sets gagnants)
+  const SETS_TO_WIN = setsToWin;
   const nextPow2 = (n) => { let b = 1; while (b < n) b *= 2; return b; };
   const accentColor = '#f79025';
 
@@ -41,7 +42,7 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, onUpdat
         si.sf += w1; si.sa += w2; sj.sf += w2; sj.sa += w1;
       }
     }
-    return stats.sort((a, b) => b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa));
+    return stats.sort((a, b) => b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa) || (b.pf - b.pa) - (a.pf - a.pa));
   };
 
   // Qualifiés automatiques (1ers + 2es)
@@ -309,7 +310,7 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, onUpdat
             {[{ key: 'p1', player: modal.p1 }, { key: 'p2', player: modal.p2 }].map(({ key, player }) => (
               <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
                 <div style={{ flex: 1, fontSize: 14, fontWeight: 600, color: t.textPrimary }}>{player.name}</div>
-                <input type="number" min="0" max="3" value={score[key]}
+                <input type="number" min="0" max={SETS_TO_WIN} value={score[key]}
                   ref={key === 'p1' ? firstInputRef : null}
                   onChange={e => setScore(s => ({ ...s, [key]: e.target.value }))}
                   style={{ width: 56, padding: '8px', borderRadius: 8, border: `1.5px solid ${t.inputBorder}`, background: t.inputBg, fontSize: 22, fontWeight: 700, textAlign: 'center', color: t.textPrimary, outline: 'none' }} />

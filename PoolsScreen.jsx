@@ -1,13 +1,16 @@
 // PoolsScreen — Constitution manuelle des poules
 // Reçoit : players, pools, onUpdatePlayers, onUpdatePools
 
-const PoolsScreen = ({ theme, players, pools, onUpdatePlayers, onUpdatePools }) => {
+const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsToWin, onUpdatePlayers, onUpdatePools }) => {
   const t = window.THEMES[theme];
   const [newName, setNewName] = React.useState('');
   const [newPoolName, setNewPoolName] = React.useState('');
   const [addingToPool, setAddingToPool] = React.useState(null); // poolId en cours d'ajout
   const [confirmDeletePool, setConfirmDeletePool] = React.useState(null); // poolId en attente de confirmation
   const [confirmDeletePlayer, setConfirmDeletePlayer] = React.useState(null); // playerId en attente de confirmation
+
+  // Format verrouillé dès qu'un match de poule a un résultat enregistré
+  const formatLocked = Object.keys(results || {}).some(k => k.startsWith('pool-'));
 
   // Joueurs déjà assignés à une poule
   const assignedIds = new Set(pools.flatMap(p => p.playerIds));
@@ -51,8 +54,84 @@ const PoolsScreen = ({ theme, players, pools, onUpdatePlayers, onUpdatePools }) 
 
   const playerName = (id) => players.find(p => p.id === id)?.name || '?';
 
+  const FORMAT_OPTIONS = [
+    { val: 2, label: '2 sets gagnants', sub: 'Best of 3' },
+    { val: 3, label: '3 sets gagnants', sub: 'Best of 5' },
+  ];
+
   return (
-    <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      {/* Barre de réglage du format des matchs de poule */}
+      <div style={{
+        background: t.cardBg,
+        borderRadius: t.cardRadius,
+        border: `1px solid ${t.tableBorder}`,
+        boxShadow: t.cardShadow,
+        padding: '14px 18px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 16,
+        flexWrap: 'wrap',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: 10,
+            background: formatLocked ? `${t.textSecondary}15` : `${t.primary}15`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+            <i className={formatLocked ? 'fas fa-lock' : 'fas fa-table-tennis-paddle-ball'}
+              style={{ color: formatLocked ? t.textSecondary : t.primary, fontSize: 14 }}></i>
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>
+              Format des matchs de poule
+            </div>
+            <div style={{ fontSize: 12, color: t.textSecondary, marginTop: 2 }}>
+              {formatLocked
+                ? 'Verrouillé — un match de poule a déjà été saisi'
+                : 'À choisir avant de saisir le premier résultat'}
+            </div>
+          </div>
+        </div>
+
+        <div style={{
+          display: 'flex', gap: 4,
+          background: t.pageBg,
+          borderRadius: 10,
+          padding: 4,
+          border: `1px solid ${t.tableBorder}`,
+        }}>
+          {FORMAT_OPTIONS.map(opt => {
+            const active = setsToWin === opt.val;
+            const disabled = formatLocked && !active;
+            return (
+              <button key={opt.val}
+                onClick={() => { if (!formatLocked) onUpdateSetsToWin(opt.val); }}
+                disabled={formatLocked}
+                style={{
+                  padding: '7px 16px',
+                  border: 'none', borderRadius: 7,
+                  background: active ? t.cardBg : 'transparent',
+                  boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                  color: active ? t.primary : t.textSecondary,
+                  cursor: formatLocked ? 'not-allowed' : 'pointer',
+                  opacity: disabled ? 0.45 : 1,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+                  minWidth: 120,
+                  transition: 'all .15s ease',
+                }}>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{opt.label}</span>
+                <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.7, letterSpacing: '.4px', textTransform: 'uppercase' }}>{opt.sub}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
 
       {/* Left: player list */}
       <div style={{ width: 260, flexShrink: 0 }}>
@@ -267,6 +346,7 @@ const PoolsScreen = ({ theme, players, pools, onUpdatePlayers, onUpdatePools }) 
           </div>
         );
       })()}
+      </div>
     </div>
   );
 };

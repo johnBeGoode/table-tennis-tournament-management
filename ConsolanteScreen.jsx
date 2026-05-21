@@ -29,7 +29,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
         si.sf += w1; si.sa += w2; sj.sf += w2; sj.sa += w1;
       }
     }
-    return stats.sort((a, b) => b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa));
+    return stats.sort((a, b) => b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa) || (b.pf - b.pa) - (a.pf - a.pa));
   };
 
   // Logique synchronisée avec BarrageScreen
@@ -401,6 +401,43 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   });
 
   // ── Vue vide ─────────────────────────────────────────────────────────────
+  // Garde-fou : tous les matchs de poule doivent être terminés
+  let totalPoolMatches = 0, playedPoolMatches = 0;
+  pools.forEach(pool => {
+    const ids = pool.playerIds;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        totalPoolMatches++;
+        if (results[`pool-${pool.id}-${ids[i]}-${ids[j]}`]) playedPoolMatches++;
+      }
+    }
+  });
+  const poolsIncomplete = pools.length > 0 && playedPoolMatches < totalPoolMatches;
+
+  if (poolsIncomplete) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ background: accentColor, color: '#fff', borderRadius: 6, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>Consolante</span>
+        </div>
+        <div style={{ padding: '64px 24px', textAlign: 'center', background: t.cardBg, border: `1.5px dashed ${t.tableBorder}`, borderRadius: t.cardRadius, color: t.textSecondary }}>
+          <div style={{ width: 64, height: 64, margin: '0 auto 18px', borderRadius: '50%', background: `${accentColor}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <i className="fas fa-hourglass-half" style={{ fontSize: 26, color: accentColor }}></i>
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>Consolante pas encore disponible</div>
+          <div style={{ fontSize: 13, maxWidth: 380, margin: '0 auto 20px', lineHeight: 1.5 }}>
+            Termine tous les matchs de poules pour que les classements soient figés et que la consolante puisse être générée.
+          </div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 16, padding: '12px 20px', borderRadius: 10, background: t.tableHeaderBg, fontSize: 12 }}>
+            <span><i className="fas fa-table-tennis-paddle-ball" style={{ marginRight: 6, opacity: 0.5 }}></i><strong style={{ color: t.textPrimary }}>{playedPoolMatches}</strong> / {totalPoolMatches} matchs joués</span>
+            <span style={{ width: 1, height: 14, background: t.tableBorder }}></span>
+            <span><i className="fas fa-layer-group" style={{ marginRight: 6, opacity: 0.5 }}></i><strong style={{ color: t.textPrimary }}>{pools.length}</strong> poule{pools.length > 1 ? 's' : ''}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (players.length === 0 || pools.length === 0 || eligibleList.length === 0) {
     const reason = players.length === 0
       ? { icon: 'fa-users', title: 'Aucun joueur inscrit', hint: "Ajoute des joueurs dans l'onglet Poules pour démarrer le tournoi." }

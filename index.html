@@ -42,9 +42,9 @@
 </div>
 
 <script type="text/babel" src="AppShell.jsx?v=2"></script>
-<script type="text/babel" src="PoolsScreen.jsx?v=2"></script>
-<script type="text/babel" src="BracketsScreen.jsx?v=2"></script>
-<script type="text/babel" src="ResultsScreen.jsx?v=2"></script>
+<script type="text/babel" src="PoolsScreen.jsx?v=3"></script>
+<script type="text/babel" src="BracketsScreen.jsx?v=3"></script>
+<script type="text/babel" src="ResultsScreen.jsx?v=3"></script>
 <script type="text/babel">
 // KnockoutScreen — Tableau dynamique (n poules)
 // Taille du bracket = prochaine puissance de 2 >= pools.length * 2
@@ -108,14 +108,39 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     );
   }
 
-  // Aucun résultat de poule → tableau vide en attente
-  const totalPoolMatchesPlayed = Object.keys(results || {}).filter(k => k.startsWith('pool-')).length;
-  if (totalPoolMatchesPlayed === 0) {
+  // Tous les matchs de poule doivent être terminés avant de générer le tableau
+  let totalPoolMatches = 0, playedPoolMatches = 0;
+  pools.forEach(pool => {
+    const ids = pool.playerIds;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        totalPoolMatches++;
+        if (results[`pool-${pool.id}-${ids[i]}-${ids[j]}`]) playedPoolMatches++;
+      }
+    }
+  });
+  if (playedPoolMatches < totalPoolMatches) {
     return (
-      <div style={{ padding: '60px', textAlign: 'center', color: t.textSecondary }}>
-        <i className={type === 'principal' ? 'fas fa-trophy' : 'fas fa-shield-halved'} style={{ fontSize: 32, display: 'block', marginBottom: 12, opacity: .3 }}></i>
-        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>En attente des résultats de poule</div>
-        <div style={{ fontSize: 13 }}>Le {title.toLowerCase()} sera généré dès que les matchs de poule auront commencé.</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ background: accentColor, color: '#fff', borderRadius: 6, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>{title}</span>
+        </div>
+        <div style={{ padding: '64px 24px', textAlign: 'center', background: t.cardBg, border: `1.5px dashed ${t.tableBorder}`, borderRadius: t.cardRadius, color: t.textSecondary }}>
+          <div style={{ width: 64, height: 64, margin: '0 auto 18px', borderRadius: '50%', background: `${accentColor}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <i className="fas fa-hourglass-half" style={{ fontSize: 26, color: accentColor }}></i>
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>
+            {title} pas encore disponible
+          </div>
+          <div style={{ fontSize: 13, maxWidth: 380, margin: '0 auto 20px', lineHeight: 1.5 }}>
+            Termine tous les matchs de poules pour que les classements soient figés et que le {title.toLowerCase()} puisse être généré.
+          </div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 16, padding: '12px 20px', borderRadius: 10, background: t.tableHeaderBg, fontSize: 12 }}>
+            <span><i className="fas fa-table-tennis-paddle-ball" style={{ marginRight: 6, opacity: 0.5 }}></i><strong style={{ color: t.textPrimary }}>{playedPoolMatches}</strong> / {totalPoolMatches} matchs joués</span>
+            <span style={{ width: 1, height: 14, background: t.tableBorder }}></span>
+            <span><i className="fas fa-layer-group" style={{ marginRight: 6, opacity: 0.5 }}></i><strong style={{ color: t.textPrimary }}>{pools.length}</strong> poule{pools.length > 1 ? 's' : ''}</span>
+          </div>
+        </div>
       </div>
     );
   }
@@ -256,13 +281,16 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
   }
 
   // Résolution d'un résultat
-  // L'auto-avancement (bye) ne s'applique qu'au R1 — les rounds suivants nécessitent un résultat réel
+  // L'auto-avancement (bye) ne s'applique qu'au R1 — les rounds suivants nécessitent un résultat réel.
+  // Cas particulier du tableau principal : un slot vide en R1 signifie un barrage non joué,
+  // PAS un vrai bye (le bracket est dimensionné pour être exactement rempli). On suspend donc
+  // l'auto-avancement tant que les barrages ne sont pas tous joués.
   const resolveMatch = (match, role, isR1 = false) => {
     if (!match) return null;
     const r = bracketResults[match.id];
     if (r) return role === 'winner' ? (r.winner === 1 ? r.p1 : r.p2) : (r.winner === 1 ? r.p2 : r.p1);
-    // Auto-avancement bye uniquement au R1
-    if (isR1) {
+    // Pas de bye en R1 pour le tableau principal
+    if (isR1 && type !== 'principal') {
       if (match.p1 && !match.p2) return role === 'winner' ? match.p1 : null;
       if (match.p2 && !match.p1) return role === 'winner' ? match.p2 : null;
     }
@@ -496,8 +524,8 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
 Object.assign(window, { KnockoutScreen });
 
 </script>
-<script type="text/babel" src="BarrageScreen.jsx?v=2"></script>
-<script type="text/babel" src="ConsolanteScreen.jsx?v=1"></script>
+<script type="text/babel" src="BarrageScreen.jsx?v=4"></script>
+<script type="text/babel" src="ConsolanteScreen.jsx?v=3"></script>
 
 <script type="text/babel">
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -525,6 +553,7 @@ const App = () => {
   const [results, setResults] = React.useState(() => loadState('ertt-results', {}));
   const [bracketResults, setBracketResults] = React.useState(() => loadState('ertt-bracket-results', {}));
   const [barrageResults, setBarrageResults] = React.useState(() => loadState('ertt-barrage-results', {}));
+  const [setsToWin, setSetsToWin] = React.useState(() => loadState('ertt-sets-to-win', 3));
 
   // Persist shared state
   React.useEffect(() => { saveState('ertt-players', players); }, [players]);
@@ -532,6 +561,7 @@ const App = () => {
   React.useEffect(() => { saveState('ertt-results', results); }, [results]);
   React.useEffect(() => { saveState('ertt-bracket-results', bracketResults); }, [bracketResults]);
   React.useEffect(() => { saveState('ertt-barrage-results', barrageResults); }, [barrageResults]);
+  React.useEffect(() => { saveState('ertt-sets-to-win', setsToWin); }, [setsToWin]);
 
   const handleTheme = (v) => {
     setTheme(v);
@@ -568,10 +598,10 @@ const App = () => {
   }, []);
 
   const screenMap = {
-    poules:     <PoolsScreen    theme={theme} players={players} pools={pools} onUpdatePlayers={setPlayers} onUpdatePools={setPools} />,
+    poules:     <PoolsScreen    theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateSetsToWin={setSetsToWin} onUpdatePlayers={setPlayers} onUpdatePools={setPools} />,
     brackets:   <BracketsScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} />,
-    resultats:  <ResultsScreen  theme={theme} players={players} pools={pools} results={results} onUpdateResults={setResults} />,
-    barrage:    <BarrageScreen  theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} onUpdateBarrageResults={setBarrageResults} />,
+    resultats:  <ResultsScreen  theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateResults={setResults} />,
+    barrage:    <BarrageScreen  theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} setsToWin={setsToWin} onUpdateBarrageResults={setBarrageResults} />,
     principal:  <KnockoutScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} type="principal" />,
     consolante: <ConsolanteScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} />,
   };

@@ -13,8 +13,7 @@ const POOL_COLORS = [
   { bg: 'rgba(99,102,241,0.1)',   color: '#6366f1' },
 ];
 
-const SETS_TO_WIN = 3;
-const MAX_SETS = 5;
+// SETS_TO_WIN / MAX_SETS sont désormais dérivés du prop `setsToWin` (2 ou 3)
 
 // Vérifie si un score de set est valide selon les règles tennis de table
 // Victoire normale : gagnant = 11, perdant ≤ 9
@@ -87,17 +86,30 @@ const poolMatches = (pool, pools, players) => {
 };
 
 const emptySet = () => ({ s1: '', s2: '', done: false });
-const initialSets = () => Array.from({ length: MAX_SETS }, emptySet);
 
-const ResultsScreen = ({ theme, players, pools, results, onUpdateResults }) => {
+const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdateResults }) => {
   const t = window.THEMES[theme];
+  // Format dynamique : best-of-3 (2 sets gagnants) ou best-of-5 (3 sets gagnants)
+  const SETS_TO_WIN = setsToWin;
+  const MAX_SETS = setsToWin * 2 - 1;
+  const initialSets = React.useCallback(() => Array.from({ length: MAX_SETS }, emptySet), [MAX_SETS]);
+
   const [tab, setTab] = React.useState('pending');
   const [selected, setSelected] = React.useState(null);
-  const [sets, setSets] = React.useState(initialSets());
-  const [setErrors, setSetErrors] = React.useState(Array(MAX_SETS).fill(null));
+  const [sets, setSets] = React.useState(() => Array.from({ length: MAX_SETS }, emptySet));
+  const [setErrors, setSetErrors] = React.useState(() => Array(MAX_SETS).fill(null));
   const scorePanelRef = React.useRef(null);
   // Refs pour focus automatique: inputRefs[setIdx][0=s1, 1=s2]
   const inputRefs = React.useRef(Array.from({ length: MAX_SETS }, () => [null, null]));
+
+  // Si le format change (ne peut arriver que sans résultat enregistré, cf. verrou côté Poules),
+  // on resynchronise les tailles internes.
+  React.useEffect(() => {
+    setSets(Array.from({ length: MAX_SETS }, emptySet));
+    setSetErrors(Array(MAX_SETS).fill(null));
+    inputRefs.current = Array.from({ length: MAX_SETS }, () => [null, null]);
+    setSelected(null);
+  }, [MAX_SETS]);
 
   const allMatches = pools.flatMap(pool => poolMatches(pool, pools, players));
   const pending = allMatches.filter(m => !results[m.id]);
@@ -306,7 +318,7 @@ const ResultsScreen = ({ theme, players, pools, results, onUpdateResults }) => {
                   <span style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary, flex: 1, textAlign: 'right' }}>{selected.p2}</span>
                 </div>
                 <div style={{ fontSize: 11, color: t.textSecondary, marginTop: 4, textAlign: 'center' }}>
-                  Premier à {SETS_TO_WIN} sets · 11 pts min · 2 pts d'écart
+                  Premier à {SETS_TO_WIN} sets gagnants · 11 pts min · 2 pts d'écart
                 </div>
               </div>
 
@@ -413,6 +425,7 @@ const ResultsScreen = ({ theme, players, pools, results, onUpdateResults }) => {
                     <i className="fas fa-save" style={{ marginRight: 6 }}></i>Enregistrer
                   </button>
                   <button onClick={() => { setSelected(null); setSets(initialSets()); setSetErrors(Array(MAX_SETS).fill(null)); }}
+
                     style={{ background: 'transparent', border: `1px solid ${t.tableBorder}`, borderRadius: t.btnRadius, padding: '11px 14px', cursor: 'pointer', color: t.textSecondary, fontSize: 14 }}>
                     <i className="fas fa-times"></i>
                   </button>

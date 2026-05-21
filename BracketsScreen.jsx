@@ -45,7 +45,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
   const poolStandings = (pool) => {
     const stats = pool.playerIds.map(id => {
       const name = players.find(p => p.id === id)?.name || '?';
-      return { id, name, v: 0, d: 0, setsFor: 0, setsAgainst: 0 };
+      return { id, name, v: 0, d: 0, setsFor: 0, setsAgainst: 0, ptsFor: 0, ptsAgainst: 0 };
     });
 
     for (let i = 0; i < pool.playerIds.length; i++) {
@@ -53,17 +53,26 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
         const key = `pool-${pool.id}-${pool.playerIds[i]}-${pool.playerIds[j]}`;
         const r = results[key];
         if (!r) continue;
-        let w1 = 0, w2 = 0;
-        (r.sets || []).forEach(([s1, s2]) => { s1 > s2 ? w1++ : w2++; });
+        let w1 = 0, w2 = 0, p1 = 0, p2 = 0;
+        (r.sets || []).forEach(([s1, s2]) => {
+          s1 > s2 ? w1++ : w2++;
+          p1 += s1; p2 += s2;
+        });
         const si = stats.find(s => s.id === pool.playerIds[i]);
         const sj = stats.find(s => s.id === pool.playerIds[j]);
         if (w1 > w2) { si.v++; sj.d++; } else { sj.v++; si.d++; }
         si.setsFor += w1; si.setsAgainst += w2;
         sj.setsFor += w2; sj.setsAgainst += w1;
+        si.ptsFor += p1; si.ptsAgainst += p2;
+        sj.ptsFor += p2; sj.ptsAgainst += p1;
       }
     }
 
-    return stats.sort((a, b) => b.v - a.v || (b.setsFor - b.setsAgainst) - (a.setsFor - a.setsAgainst));
+    return stats.sort((a, b) =>
+      b.v - a.v
+      || (b.setsFor - b.setsAgainst) - (a.setsFor - a.setsAgainst)
+      || (b.ptsFor - b.ptsAgainst) - (a.ptsFor - a.ptsAgainst)
+    );
   };
 
   const totalMatches = (pool) => {
