@@ -71,14 +71,18 @@ const poolMatches = (pool, pools, players) => {
   const matches = [];
   for (let i = 0; i < pIds.length; i++) {
     for (let j = i + 1; j < pIds.length; j++) {
+      // Paire canonique (petit id en premier) — la clé et l'orientation des sets
+      // ne dépendent plus de la position des joueurs dans la poule
+      const lo = Math.min(pIds[i], pIds[j]);
+      const hi = Math.max(pIds[i], pIds[j]);
       matches.push({
-        id: `pool-${pool.id}-${pIds[i]}-${pIds[j]}`,
+        id: window.poolMatchKey(pool.id, lo, hi),
         round: pool.name,
         poolIdx: pools.indexOf(pool),
-        p1Id: pIds[i],
-        p2Id: pIds[j],
-        p1: players.find(p => p.id === pIds[i])?.name || '?',
-        p2: players.find(p => p.id === pIds[j])?.name || '?',
+        p1Id: lo,
+        p2Id: hi,
+        p1: players.find(p => p.id === lo)?.name || '?',
+        p2: players.find(p => p.id === hi)?.name || '?',
       });
     }
   }
@@ -134,30 +138,41 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
     setSets(initialSets());
     setSetErrors(Array(MAX_SETS).fill(null));
     setTimeout(() => {
-      scorePanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const el = scorePanelRef.current;
+      if (!el) return;
+      // Fait défiler le premier ancêtre scrollable (pas de scrollIntoView,
+      // qui peut faire défiler la page hôte)
+      let sc = el.parentElement;
+      while (sc && sc.scrollHeight <= sc.clientHeight + 1) sc = sc.parentElement;
+      if (!sc) return;
+      const top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - 16;
+      sc.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
     }, 50);
   };
 
-  // Mise à jour d'un score (frappe clavier) — pas de validation ici
+  // Mise à jour d'un score (frappe clavier) — pas de validation ici,
+  // mais une nouvelle frappe efface l'erreur affichée sur ce set
   const handleChange = (idx, key, val) => {
     setSets(prev => prev.map((s, i) => i === idx ? { ...s, [key]: val } : s));
+    setSetErrors(e => (e[idx] ? e.map((v, i) => i === idx ? null : v) : e));
   };
 
-  // Validation au blur
+  // Validation au blur — lit l'état courant, aucun effet de bord dans les updaters
   const handleBlur = (idx) => {
-    setSets(prev => {
-      const s = prev[idx];
-      if (s.done) return prev;
-      if (s.s1 === '' || s.s2 === '') return prev;
-      const err = scoreError(s.s1, s.s2);
-      if (err) {
-        setSetErrors(e => e.map((v, i) => i === idx ? err : v));
-        return prev;
-      }
-      if (!isSetValid(s.s1, s.s2)) return prev;
-      setSetErrors(e => e.map((v, i) => i === idx ? null : v));
-      return prev.map((ss, i) => i === idx ? { ...ss, done: true } : ss);
-    });
+    const s = sets[idx];
+    if (s.done || s.s1 === '' || s.s2 === '') return;
+    const err = scoreError(s.s1, s.s2);
+    if (err) {
+      setSetErrors(e => e.map((v, i) => i === idx ? err : v));
+      return;
+    }
+    if (!isSetValid(s.s1, s.s2)) {
+      // Score plausible mais incomplet (ex. 5–3) : feedback explicite
+      setSetErrors(e => e.map((v, i) => i === idx ? 'Set incomplet — il faut 11 pts (2 pts d\'écart)' : v));
+      return;
+    }
+    setSetErrors(e => e.map((v, i) => i === idx ? null : v));
+    setSets(prev => prev.map((ss, i) => i === idx ? { ...ss, done: true } : ss));
   };
 
   const handleSave = () => {
@@ -370,6 +385,7 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
                           <input
                             type="number" min="0" max="30"
                             disabled={!isActive}
+                            value={s.s1}
                             ref={el => inputRefs.current[idx][0] = el}
                             onChange={e => handleChange(idx, 's1', e.target.value)}
                             onBlur={() => handleBlur(idx)}
@@ -382,6 +398,7 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
                           <input
                             type="number" min="0" max="30"
                             disabled={!isActive}
+                            value={s.s2}
                             ref={el => inputRefs.current[idx][1] = el}
                             onChange={e => handleChange(idx, 's2', e.target.value)}
                             onBlur={() => handleBlur(idx)}

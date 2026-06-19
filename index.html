@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- @dsCard group="UI Kit — Tournament" name="ERTT Tournament App UI Kit" subtitle="App de gestion de tournois — joueurs, brackets, saisie résultats" viewport="1280x700" -->
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
@@ -14,32 +15,10 @@
     body { font-family: 'Roboto', sans-serif; overflow: hidden; }
     input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
     input[type=number] { -moz-appearance: textfield; }
-
-    #tweaks-panel {
-      position: fixed; bottom: 24px; right: 24px; z-index: 999;
-      background: #fff; border-radius: 14px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.15);
-      padding: 18px 20px; width: 240px;
-      display: none; flex-direction: column; gap: 14px;
-      border: 1px solid #e8eaed;
-    }
-    #tweaks-panel.open { display: flex; }
-    #tweaks-panel h3 { font-size: 13px; font-weight: 700; color: #1a1d23; }
-    .tweak-label { font-size: 12px; color: #6b7280; font-weight: 600; margin-bottom: 6px; }
-    .tweak-options { display: flex; gap: 8px; flex-wrap: wrap; }
-    .tweak-btn { padding: 7px 14px; border-radius: 8px; border: 1.5px solid #e8eaed; background: #fff; font-size: 13px; font-weight: 600; cursor: pointer; color: #444; transition: all .15s ease; }
-    .tweak-btn.active { border-color: #20bf6b; background: rgba(32,191,107,.08); color: #20bf6b; }
   </style>
 </head>
 <body>
 <div id="root"></div>
-<div id="tweaks-panel">
-  <h3>Tweaks</h3>
-  <div>
-    <div class="tweak-label">Direction visuelle</div>
-    <div class="tweak-options" id="tweak-theme"></div>
-  </div>
-</div>
 
 <script type="text/babel" src="AppShell.jsx?v=2"></script>
 <script type="text/babel" src="PoolsScreen.jsx?v=3"></script>
@@ -61,10 +40,6 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
   const title = type === 'principal' ? 'Tableau principal' : 'Consolante';
   const prefix = type;
 
-  // Rang dans la poule : principal = 1er/2e, consolante = 3e/4e
-  const rankA = type === 'principal' ? 0 : 2;
-  const rankB = type === 'principal' ? 1 : 3;
-
   const autoWinner = (() => {
     const s1 = parseInt(score.p1), s2 = parseInt(score.p2);
     if (s1 === SETS_TO_WIN && s2 < SETS_TO_WIN) return 1;
@@ -72,31 +47,8 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     return null;
   })();
 
-  // Classement d'une poule
-  const poolStandings = (pool) => {
-    const stats = pool.playerIds.map(id => {
-      const name = players.find(p => p.id === id)?.name || '?';
-      return { id, name, v: 0, d: 0, sf: 0, sa: 0, pf: 0, pa: 0 };
-    });
-    for (let i = 0; i < pool.playerIds.length; i++) {
-      for (let j = i + 1; j < pool.playerIds.length; j++) {
-        const key = `pool-${pool.id}-${pool.playerIds[i]}-${pool.playerIds[j]}`;
-        const r = results[key];
-        if (!r) continue;
-        let w1 = 0, w2 = 0;
-        const si = stats.find(s => s.id === pool.playerIds[i]);
-        const sj = stats.find(s => s.id === pool.playerIds[j]);
-        (r.sets || []).forEach(([s1, s2]) => {
-          s1 > s2 ? w1++ : w2++;
-          si.pf += s1; si.pa += s2;
-          sj.pf += s2; sj.pa += s1;
-        });
-        if (w1 > w2) { si.v++; sj.d++; } else { sj.v++; si.d++; }
-        si.sf += w1; si.sa += w2; sj.sf += w2; sj.sa += w1;
-      }
-    }
-    return stats.sort((a, b) => b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa) || (b.pf - b.pa) - (a.pf - a.pa));
-  };
+  // Classement d'une poule — délégué au helper partagé (AppShell)
+  const poolStandings = (pool) => window.poolStandings(pool, players, results);
 
   if (pools.length < 2) {
     return (
@@ -115,7 +67,7 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
         totalPoolMatches++;
-        if (results[`pool-${pool.id}-${ids[i]}-${ids[j]}`]) playedPoolMatches++;
+        if (results[window.poolMatchKey(pool.id, ids[i], ids[j])]) playedPoolMatches++;
       }
     }
   });
@@ -145,8 +97,7 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     );
   }
 
-  // Structure adaptative — synchronisée avec BarrageScreen / BracketsScreen
-  const nextPow2 = (n) => { let b = 1; while (b < n) b *= 2; return b; };
+  // Structure adaptative — logique partagée (AppShell.computeBracketStructure)
   const poolCount = pools.length;
   const autoQualifiers = poolCount * 2;
 
@@ -159,19 +110,7 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     return { player: p, poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
   }).filter(Boolean);
 
-  const computeStructure = () => {
-    const tc = thirdPlacePlayers.length;
-    let size = nextPow2(autoQualifiers);
-    while (size >= 2) {
-      const missing = size - autoQualifiers;
-      if (missing === 0) return { bracketSize: size, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
-      if (missing > 0 && missing <= tc) return { bracketSize: size, mode: 'barrage', barrageCount: missing, eliminateCount: 0 };
-      if (missing < 0) return { bracketSize: size, mode: 'eliminate', barrageCount: 0, eliminateCount: -missing };
-      size = size / 2;
-    }
-    return { bracketSize: 2, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
-  };
-  const struct = computeStructure();
+  const struct = window.computeBracketStructure(autoQualifiers, thirdPlacePlayers.length);
   const principalBracketSize = struct.bracketSize;
   const barrageCount = struct.barrageCount;
 
@@ -179,7 +118,6 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
   const computeBarrageMatches = () => {
     const sortedDesc = [...thirdPlacePlayers].sort((a, b) => b.v - a.v || b.diff - a.diff || b.pointDiff - a.pointDiff);
     const eligible = struct.mode === 'barrage' ? sortedDesc.slice(0, barrageCount * 2) : [];
-    const directConsolante = thirdPlacePlayers.filter(x => !eligible.find(e => e.poolId === x.poolId));
 
     const matches = [];
     for (let i = 0; i < eligible.length; i += 2) {
@@ -187,21 +125,16 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
       if (!a || !b) break;
       matches.push({ id: `barrage-${a.poolId}-${b.poolId}`, p1: a.player, p2: b.player });
     }
-    return { matches, directConsolante: directConsolante.map(x => x.player) };
+    return matches;
   };
 
-  const { matches: barrageMatches, directConsolante } = computeBarrageMatches();
+  const barrageMatches = computeBarrageMatches();
 
-  // Vainqueurs et perdants des barrages
+  // Vainqueurs des barrages
   const barrageWinners = barrageMatches.map(m => {
     const r = barrageResults?.[m.id];
     if (!r) return null;
     return r.winner === 1 ? r.p1 : r.p2;
-  });
-  const barrageLosers = barrageMatches.map(m => {
-    const r = barrageResults?.[m.id];
-    if (!r) return null;
-    return r.winner === 1 ? r.p2 : r.p1;
   });
 
   // Classement officiel par groupes
@@ -214,21 +147,17 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
   const secondSorted = sortByPerf(secondRaw);
 
   // En mode 'eliminate' : retirer les moins bons 2es du tableau principal (vers consolante)
-  const eliminatedSeconds = struct.mode === 'eliminate'
-    ? secondSorted.slice(secondSorted.length - struct.eliminateCount)
-    : [];
   const keptSeconds = struct.mode === 'eliminate'
     ? secondSorted.slice(0, secondSorted.length - struct.eliminateCount)
     : secondSorted;
 
-  // Consolante : 2es éliminés + 3es directs + perdants barrage + 4es
-  const consolanteTotalPlayers = eliminatedSeconds.length + directConsolante.length + barrageMatches.length + pools.length;
-  const bracketSize = type === 'principal' ? principalBracketSize : Math.max(2, nextPow2(consolanteTotalPlayers));
+  const bracketSize = principalBracketSize;
 
   // Construction des têtes de série
   const seeds = Array(bracketSize).fill(null);
 
-  if (type === 'principal') {
+  // KnockoutScreen ne gère que le tableau principal — la consolante a son propre écran (ConsolanteScreen)
+  {
     const n = pools.length;
 
     // Placement standard FFTT (numéro de seed à chaque position, 1-indexé)
@@ -239,61 +168,25 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     const FFTT_2  = [1,2];
     const ffttOrder = bracketSize === 2 ? FFTT_2 : bracketSize === 4 ? FFTT_4 : bracketSize === 8 ? FFTT_8 : bracketSize === 16 ? FFTT_16 : FFTT_32;
 
-    const barrageSeeds = barrageWinners.filter(Boolean);
-
     // Seeds : 1..n = 1ers · n+1..n+kept = 2es retenus · suivant = vainqueurs barrage
+    // Chaque barrage garde un slot de seed FIXE (pas de compactage) : un barrage
+    // non joué laisse son slot vide au lieu de décaler les autres vainqueurs.
     const seedMap = {};
     firstSorted.forEach((p, i)  => { seedMap[i + 1] = p; });
     keptSeconds.forEach((p, i)  => { seedMap[n + i + 1] = p; });
-    barrageSeeds.forEach((p, i) => { seedMap[n + keptSeconds.length + i + 1] = p; });
+    barrageWinners.forEach((p, i) => { if (p) seedMap[n + keptSeconds.length + i + 1] = p; });
 
     ffttOrder.forEach((seedNum, pos) => {
       seeds[pos] = seedMap[seedNum] || null;
     });
-  } else {
-    // Consolante : ordre par groupe (mieux classé → moins bien classé),
-    // tri par perf à l'intérieur de chaque groupe.
-    //   1. 2es éliminés (mode eliminate uniquement)
-    //   2. Perdants de barrage (= les meilleurs 3es de poule)
-    //   3. 3es directs (= les moins bons 3es, mode barrage uniquement)
-    //   4. 4es de poule
-    const sortPerf = (arr) => [...arr].sort((a, b) =>
-      b.v - a.v ||
-      (b.sf - b.sa) - (a.sf - a.sa) ||
-      (b.pf - b.pa) - (a.pf - a.pa)
-    );
-    const fourthRaw = pools.map(pool => poolStandings(pool)[3]).filter(Boolean);
-    const consolantePlayers = [
-      ...sortPerf(eliminatedSeconds),
-      ...sortPerf(barrageLosers.filter(Boolean)),
-      ...sortPerf(directConsolante),
-      ...sortPerf(fourthRaw),
-    ];
-
-    // Placement interleaved : pairs en haut du bracket, impairs en bas
-    // → seeds 1 & 2 dans des moitiés opposées, top 4 reçoivent les exemptions
-    const half = bracketSize / 2;
-    consolantePlayers.forEach((player, i) => {
-      const pos = i % 2 === 0 ? Math.floor(i / 2) : half + Math.floor(i / 2);
-      seeds[pos] = player;
-    });
-    // Les positions restantes (null) sont les exemptions pour les meilleures têtes de série
   }
 
-  // Résolution d'un résultat
-  // L'auto-avancement (bye) ne s'applique qu'au R1 — les rounds suivants nécessitent un résultat réel.
-  // Cas particulier du tableau principal : un slot vide en R1 signifie un barrage non joué,
-  // PAS un vrai bye (le bracket est dimensionné pour être exactement rempli). On suspend donc
-  // l'auto-avancement tant que les barrages ne sont pas tous joués.
+  // Résolution d'un résultat — pas d'auto-avancement (bye) : un slot vide en R1
+  // signifie un barrage non joué, PAS un vrai bye (le bracket est exactement rempli).
   const resolveMatch = (match, role, isR1 = false) => {
     if (!match) return null;
     const r = bracketResults[match.id];
     if (r) return role === 'winner' ? (r.winner === 1 ? r.p1 : r.p2) : (r.winner === 1 ? r.p2 : r.p1);
-    // Pas de bye en R1 pour le tableau principal
-    if (isR1 && type !== 'principal') {
-      if (match.p1 && !match.p2) return role === 'winner' ? match.p1 : null;
-      if (match.p2 && !match.p1) return role === 'winner' ? match.p2 : null;
-    }
     return null;
   };
 
@@ -528,12 +421,10 @@ Object.assign(window, { KnockoutScreen });
 <script type="text/babel" src="ConsolanteScreen.jsx?v=3"></script>
 
 <script type="text/babel">
-const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "theme": "classique",
-  "screen": "consolante"
-}/*EDITMODE-END*/;
+const DEFAULT_SCREEN = /*EDITMODE-BEGIN*/"consolante"/*EDITMODE-END*/;
 
-const THEME_LABELS = { classique: 'A — Classique', sport: 'B — Sport' };
+// Look unique : Classique (la bascule de thème a été retirée)
+const THEME = 'classique';
 
 const loadState = (key, def) => {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
@@ -543,14 +434,29 @@ const saveState = (key, val) => {
 };
 
 const App = () => {
-  const savedTweaks = loadState('ertt-tweaks', {});
-  const [theme, setTheme] = React.useState(savedTweaks.theme || TWEAK_DEFAULTS.theme);
-  const [screen, setScreen] = React.useState(savedTweaks.screen || TWEAK_DEFAULTS.screen);
+  const theme = THEME;
+  const [screen, setScreen] = React.useState(() => loadState('ertt-screen', DEFAULT_SCREEN));
+  React.useEffect(() => { saveState('ertt-screen', screen); }, [screen]);
 
   // Shared state
   const [players, setPlayers] = React.useState(() => loadState('ertt-players', []));
   const [pools, setPools] = React.useState(() => loadState('ertt-pools', []));
-  const [results, setResults] = React.useState(() => loadState('ertt-results', {}));
+  const [results, setResults] = React.useState(() => {
+    const raw = loadState('ertt-results', {});
+    // Migration : clés canoniques (petit id de joueur en premier).
+    // Les résultats enregistrés avant la canonicalisation sont réécrits,
+    // en inversant l'orientation des sets si la paire était inversée.
+    const migrated = {};
+    Object.entries(raw).forEach(([k, v]) => {
+      const m = k.match(/^pool-(\d+)-(\d+)-(\d+)$/);
+      if (m && parseInt(m[2]) > parseInt(m[3])) {
+        migrated[`pool-${m[1]}-${m[3]}-${m[2]}`] = { ...v, sets: (v.sets || []).map(([a, b]) => [b, a]) };
+      } else {
+        migrated[k] = v;
+      }
+    });
+    return migrated;
+  });
   const [bracketResults, setBracketResults] = React.useState(() => loadState('ertt-bracket-results', {}));
   const [barrageResults, setBarrageResults] = React.useState(() => loadState('ertt-barrage-results', {}));
   const [setsToWin, setSetsToWin] = React.useState(() => loadState('ertt-sets-to-win', 3));
@@ -563,39 +469,27 @@ const App = () => {
   React.useEffect(() => { saveState('ertt-barrage-results', barrageResults); }, [barrageResults]);
   React.useEffect(() => { saveState('ertt-sets-to-win', setsToWin); }, [setsToWin]);
 
-  const handleTheme = (v) => {
-    setTheme(v);
-    saveState('ertt-tweaks', { theme: v, screen });
-    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { theme: v } }, '*');
-  };
-
-  const handleScreen = (v) => {
-    setScreen(v);
-    saveState('ertt-tweaks', { theme, screen: v });
-    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { screen: v } }, '*');
-  };
-
-  // Tweaks panel wiring
+  // Purge des résultats orphelins : quand la composition des poules change
+  // (joueur retiré, poule supprimée…), les résultats des paires qui n'existent
+  // plus sont supprimés — le verrou de format se libère alors automatiquement.
   React.useEffect(() => {
-    const el = document.getElementById('tweak-theme');
-    if (!el) return;
-    el.innerHTML = '';
-    Object.entries(THEME_LABELS).forEach(([k, v]) => {
-      const btn = document.createElement('button');
-      btn.className = 'tweak-btn' + (theme === k ? ' active' : '');
-      btn.textContent = v;
-      btn.onclick = () => handleTheme(k);
-      el.appendChild(btn);
+    const valid = new Set();
+    pools.forEach(pool => {
+      const ids = pool.playerIds;
+      for (let i = 0; i < ids.length; i++)
+        for (let j = i + 1; j < ids.length; j++)
+          valid.add(window.poolMatchKey(pool.id, ids[i], ids[j]));
     });
-  }, [theme]);
+    setResults(prev => {
+      const stale = Object.keys(prev).filter(k => k.startsWith('pool-') && !valid.has(k));
+      if (stale.length === 0) return prev;
+      const next = { ...prev };
+      stale.forEach(k => delete next[k]);
+      return next;
+    });
+  }, [pools]);
 
-  React.useEffect(() => {
-    window.addEventListener('message', (e) => {
-      if (e.data?.type === '__activate_edit_mode')   document.getElementById('tweaks-panel').classList.add('open');
-      if (e.data?.type === '__deactivate_edit_mode') document.getElementById('tweaks-panel').classList.remove('open');
-    });
-    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
-  }, []);
+  const handleScreen = (v) => setScreen(v);
 
   const screenMap = {
     poules:     <PoolsScreen    theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateSetsToWin={setSetsToWin} onUpdatePlayers={setPlayers} onUpdatePools={setPools} />,

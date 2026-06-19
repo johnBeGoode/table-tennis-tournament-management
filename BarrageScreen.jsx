@@ -19,72 +19,32 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
     return null;
   })();
 
-  // Classement d'une poule
-  const poolStandings = (pool) => {
-    const stats = pool.playerIds.map(id => {
-      const name = players.find(p => p.id === id)?.name || '?';
-      return { id, name, v: 0, d: 0, sf: 0, sa: 0, pf: 0, pa: 0 };
-    });
-    for (let i = 0; i < pool.playerIds.length; i++) {
-      for (let j = i + 1; j < pool.playerIds.length; j++) {
-        const key = `pool-${pool.id}-${pool.playerIds[i]}-${pool.playerIds[j]}`;
-        const r = results[key];
-        if (!r) continue;
-        let w1 = 0, w2 = 0;
-        const si = stats.find(s => s.id === pool.playerIds[i]);
-        const sj = stats.find(s => s.id === pool.playerIds[j]);
-        (r.sets || []).forEach(([s1, s2]) => {
-          s1 > s2 ? w1++ : w2++;
-          si.pf += s1; si.pa += s2;
-          sj.pf += s2; sj.pa += s1;
-        });
-        if (w1 > w2) { si.v++; sj.d++; } else { sj.v++; si.d++; }
-        si.sf += w1; si.sa += w2; sj.sf += w2; sj.sa += w1;
-      }
-    }
-    return stats.sort((a, b) => b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa) || (b.pf - b.pa) - (a.pf - a.pa));
-  };
+  // Classement d'une poule — délégué au helper partagé (AppShell)
+  const poolStandings = (pool) => window.poolStandings(pool, players, results);
 
   // Qualifiés automatiques (1ers + 2es)
   const autoQualifiers = pools.length * 2;
 
   // 3es de chaque poule
-  const thirdPlacePlayers = pools.map((pool, idx) => {
+  const thirdPlacePlayers = pools.map((pool) => {
     const standings = poolStandings(pool);
     const p = standings[2] || null;
     if (!p) return null;
     const stats = standings.find(s => s.id === p.id);
-    return { player: p, poolLabel: String.fromCharCode(65 + idx), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
+    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
   }).filter(Boolean);
 
   // 2es de chaque poule (utiles pour le cas "éliminer les moins bons 2es")
-  const secondPlacePlayers = pools.map((pool, idx) => {
+  const secondPlacePlayers = pools.map((pool) => {
     const standings = poolStandings(pool);
     const p = standings[1] || null;
     if (!p) return null;
     const stats = standings.find(s => s.id === p.id);
-    return { player: p, poolLabel: String.fromCharCode(65 + idx), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
+    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
   }).filter(Boolean);
 
-  // Détermination de la taille du tableau principal selon la logique :
-  // essayer puissances de 2 en descendant depuis nextPow2(qualifiés)
-  //   missing == 0         → tableau direct
-  //   0 < missing <= 3es   → organiser `missing` barrages parmi les meilleurs 3es
-  //   missing < 0          → éliminer |missing| moins bons 2es
-  //   missing > 3es        → essayer la taille inférieure
-  const computeStructure = () => {
-    const thirdsCount = thirdPlacePlayers.length;
-    let size = nextPow2(autoQualifiers);
-    while (size >= 2) {
-      const missing = size - autoQualifiers;
-      if (missing === 0) return { bracketSize: size, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
-      if (missing > 0 && missing <= thirdsCount) return { bracketSize: size, mode: 'barrage', barrageCount: missing, eliminateCount: 0 };
-      if (missing < 0) return { bracketSize: size, mode: 'eliminate', barrageCount: 0, eliminateCount: -missing };
-      size = size / 2;
-    }
-    return { bracketSize: 2, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
-  };
-  const struct = computeStructure();
+  // Structure du tableau principal — logique partagée (AppShell.computeBracketStructure)
+  const struct = window.computeBracketStructure(autoQualifiers, thirdPlacePlayers.length);
   const BRACKET_SIZE = struct.bracketSize;
   const missingSpots = struct.barrageCount;
   const barrageMatchCount = struct.barrageCount;
@@ -197,7 +157,7 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
         totalPoolMatches++;
-        if (results[`pool-${pool.id}-${ids[i]}-${ids[j]}`]) playedPoolMatches++;
+        if (results[window.poolMatchKey(pool.id, ids[i], ids[j])]) playedPoolMatches++;
       }
     }
   });

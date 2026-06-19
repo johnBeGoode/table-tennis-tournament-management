@@ -27,8 +27,16 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
     onUpdatePools(prev => prev.map(pool => ({ ...pool, playerIds: pool.playerIds.filter(pid => pid !== id) })));
   };
 
+  // Premier nom « Poule X » non utilisé — évite les doublons après suppression d'une poule
+  const nextAutoPoolName = (() => {
+    const used = new Set(pools.map(p => p.name));
+    let i = 0;
+    while (used.has(`Poule ${String.fromCharCode(65 + i)}`)) i++;
+    return `Poule ${String.fromCharCode(65 + i)}`;
+  })();
+
   const createPool = () => {
-    const name = newPoolName.trim() || `Poule ${String.fromCharCode(65 + pools.length)}`;
+    const name = newPoolName.trim() || nextAutoPoolName;
     onUpdatePools(prev => [...prev, { id: Date.now(), name, playerIds: [] }]);
     setNewPoolName('');
   };
@@ -196,7 +204,7 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input
-              placeholder={`Poule ${String.fromCharCode(65 + pools.length)}`}
+              placeholder={nextAutoPoolName}
               value={newPoolName}
               onChange={e => setNewPoolName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && createPool()}

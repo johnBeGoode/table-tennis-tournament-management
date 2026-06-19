@@ -42,38 +42,10 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
     '#0e92f0', '#fb8c04', '#b06ffb', '#f96b6b', '#20bf6b', '#00B7FF',
   ];
 
-  const poolStandings = (pool) => {
-    const stats = pool.playerIds.map(id => {
-      const name = players.find(p => p.id === id)?.name || '?';
-      return { id, name, v: 0, d: 0, setsFor: 0, setsAgainst: 0, ptsFor: 0, ptsAgainst: 0 };
-    });
-
-    for (let i = 0; i < pool.playerIds.length; i++) {
-      for (let j = i + 1; j < pool.playerIds.length; j++) {
-        const key = `pool-${pool.id}-${pool.playerIds[i]}-${pool.playerIds[j]}`;
-        const r = results[key];
-        if (!r) continue;
-        let w1 = 0, w2 = 0, p1 = 0, p2 = 0;
-        (r.sets || []).forEach(([s1, s2]) => {
-          s1 > s2 ? w1++ : w2++;
-          p1 += s1; p2 += s2;
-        });
-        const si = stats.find(s => s.id === pool.playerIds[i]);
-        const sj = stats.find(s => s.id === pool.playerIds[j]);
-        if (w1 > w2) { si.v++; sj.d++; } else { sj.v++; si.d++; }
-        si.setsFor += w1; si.setsAgainst += w2;
-        sj.setsFor += w2; sj.setsAgainst += w1;
-        si.ptsFor += p1; si.ptsAgainst += p2;
-        sj.ptsFor += p2; sj.ptsAgainst += p1;
-      }
-    }
-
-    return stats.sort((a, b) =>
-      b.v - a.v
-      || (b.setsFor - b.setsAgainst) - (a.setsFor - a.setsAgainst)
-      || (b.ptsFor - b.ptsAgainst) - (a.ptsFor - a.ptsAgainst)
-    );
-  };
+  // Classement d'une poule — délégué au helper partagé (AppShell), champs renommés pour l'affichage
+  const poolStandings = (pool) => window.poolStandings(pool, players, results).map(s => ({
+    ...s, setsFor: s.sf, setsAgainst: s.sa, ptsFor: s.pf, ptsAgainst: s.pa,
+  }));
 
   const totalMatches = (pool) => {
     const n = pool.playerIds.length;
@@ -85,7 +57,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
     const ids = pool.playerIds;
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
-        if (results[`pool-${pool.id}-${ids[i]}-${ids[j]}`]) count++;
+        if (results[window.poolMatchKey(pool.id, ids[i], ids[j])]) count++;
       }
     }
     return count;
@@ -109,48 +81,20 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
       );
     }
 
-    // Construire les stats de chaque joueur (par poule), avec poolName/poolColor/rang dans la poule
+    // Stats par joueur — bâties sur le classement partagé (AppShell.poolStandings)
     const buildStats = () => {
       const all = [];
       pools.forEach((pool, poolIdx) => {
         const accent = POOL_COLORS[poolIdx % POOL_COLORS.length];
-        const stats = pool.playerIds.map(id => {
-          const name = players.find(p => p.id === id)?.name || '?';
-          return {
-            id, name, poolId: pool.id, poolName: pool.name, poolColor: accent,
-            v: 0, d: 0, played: 0,
-            setsFor: 0, setsAgainst: 0,
-            ptsFor: 0, ptsAgainst: 0,
-          };
+        window.poolStandings(pool, players, results).forEach((s, i) => {
+          all.push({
+            id: s.id, name: s.name, poolId: pool.id, poolName: pool.name, poolColor: accent,
+            v: s.v, d: s.d, played: s.v + s.d,
+            setsFor: s.sf, setsAgainst: s.sa,
+            ptsFor: s.pf, ptsAgainst: s.pa,
+            poolRank: i + 1,
+          });
         });
-        for (let i = 0; i < pool.playerIds.length; i++) {
-          for (let j = i + 1; j < pool.playerIds.length; j++) {
-            const key = `pool-${pool.id}-${pool.playerIds[i]}-${pool.playerIds[j]}`;
-            const r = results[key];
-            if (!r) continue;
-            let w1 = 0, w2 = 0, p1 = 0, p2 = 0;
-            (r.sets || []).forEach(([s1, s2]) => {
-              s1 > s2 ? w1++ : w2++;
-              p1 += s1; p2 += s2;
-            });
-            const si = stats.find(s => s.id === pool.playerIds[i]);
-            const sj = stats.find(s => s.id === pool.playerIds[j]);
-            if (w1 > w2) { si.v++; sj.d++; } else { sj.v++; si.d++; }
-            si.played++; sj.played++;
-            si.setsFor += w1; si.setsAgainst += w2;
-            sj.setsFor += w2; sj.setsAgainst += w1;
-            si.ptsFor += p1; si.ptsAgainst += p2;
-            sj.ptsFor += p2; sj.ptsAgainst += p1;
-          }
-        }
-        // Rang dans la poule
-        const sortedPool = [...stats].sort((a, b) =>
-          b.v - a.v
-          || (b.setsFor - b.setsAgainst) - (a.setsFor - a.setsAgainst)
-          || (b.ptsFor - b.ptsAgainst) - (a.ptsFor - a.ptsAgainst)
-        );
-        sortedPool.forEach((s, i) => { s.poolRank = i + 1; });
-        all.push(...stats);
       });
       return all;
     };
@@ -167,8 +111,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
     const firsts  = sortByPerf(allStats.filter(s => s.poolRank === 1));
     const seconds = sortByPerf(allStats.filter(s => s.poolRank === 2));
 
-    // Logique synchronisée avec BarrageScreen
-    const nextPow2 = (k) => { let b = 1; while (b < k) b *= 2; return b; };
+    // Logique partagée (AppShell.computeBracketStructure)
     const autoQualifiers = n * 2;
 
     const thirdPlayers = pools.map(pool => {
@@ -176,19 +119,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
       return tStats ? { player: tStats, poolId: pool.id } : null;
     }).filter(Boolean);
 
-    const computeStructure = () => {
-      const tc = thirdPlayers.length;
-      let size = nextPow2(autoQualifiers);
-      while (size >= 2) {
-        const missing = size - autoQualifiers;
-        if (missing === 0) return { bracketSize: size, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
-        if (missing > 0 && missing <= tc) return { bracketSize: size, mode: 'barrage', barrageCount: missing, eliminateCount: 0 };
-        if (missing < 0) return { bracketSize: size, mode: 'eliminate', barrageCount: 0, eliminateCount: -missing };
-        size = size / 2;
-      }
-      return { bracketSize: 2, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
-    };
-    const struct = computeStructure();
+    const struct = window.computeBracketStructure(autoQualifiers, thirdPlayers.length);
 
     // Mode 'eliminate' : retirer les `eliminateCount` moins bons 2es du tableau principal
     let keptSeconds = seconds;

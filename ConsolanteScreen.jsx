@@ -8,61 +8,28 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   // ── Calcul des joueurs éligibles consolante ──────────────────────────────
   const nextPow2 = n => { let b = 1; while (b < n) b *= 2; return b; };
 
-  const poolStandings = (pool) => {
-    const stats = pool.playerIds.map(id => {
-      const name = players.find(p => p.id === id)?.name || '?';
-      return { id, name, v: 0, d: 0, sf: 0, sa: 0, pf: 0, pa: 0 };
-    });
-    for (let i = 0; i < pool.playerIds.length; i++) {
-      for (let j = i + 1; j < pool.playerIds.length; j++) {
-        const key = `pool-${pool.id}-${pool.playerIds[i]}-${pool.playerIds[j]}`;
-        const r = results[key];
-        if (!r) continue;
-        let w1 = 0, w2 = 0;
-        const si = stats.find(s => s.id === pool.playerIds[i]);
-        const sj = stats.find(s => s.id === pool.playerIds[j]);
-        (r.sets || []).forEach(([s1, s2]) => {
-          s1 > s2 ? w1++ : w2++;
-          si.pf += s1; si.pa += s2; sj.pf += s2; sj.pa += s1;
-        });
-        if (w1 > w2) { si.v++; sj.d++; } else { sj.v++; si.d++; }
-        si.sf += w1; si.sa += w2; sj.sf += w2; sj.sa += w1;
-      }
-    }
-    return stats.sort((a, b) => b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa) || (b.pf - b.pa) - (a.pf - a.pa));
-  };
+  const poolStandings = (pool) => window.poolStandings(pool, players, results);
 
   // Logique synchronisée avec BarrageScreen
   const autoQualifiers = pools.length * 2;
-  const thirds = pools.map((pool, idx) => {
+  const thirds = pools.map((pool) => {
     const st = poolStandings(pool);
     const p = st[2] || null;
     if (!p) return null;
     const stats = st.find(s => s.id === p.id);
-    return { player: p, poolLabel: String.fromCharCode(65 + idx), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
+    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
   }).filter(Boolean);
 
-  const secondsAll = pools.map((pool, idx) => {
+  const secondsAll = pools.map((pool) => {
     const st = poolStandings(pool);
     const p = st[1] || null;
     if (!p) return null;
     const stats = st.find(s => s.id === p.id);
-    return { player: p, poolLabel: String.fromCharCode(65 + idx), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
+    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
   }).filter(Boolean);
 
-  const computeStructure = () => {
-    const tc = thirds.length;
-    let size = nextPow2(autoQualifiers);
-    while (size >= 2) {
-      const missing = size - autoQualifiers;
-      if (missing === 0) return { mode: 'direct', barrageCount: 0, eliminateCount: 0 };
-      if (missing > 0 && missing <= tc) return { mode: 'barrage', barrageCount: missing, eliminateCount: 0 };
-      if (missing < 0) return { mode: 'eliminate', barrageCount: 0, eliminateCount: -missing };
-      size = size / 2;
-    }
-    return { mode: 'direct', barrageCount: 0, eliminateCount: 0 };
-  };
-  const struct = computeStructure();
+  // Structure du tableau principal — logique partagée (AppShell.computeBracketStructure)
+  const struct = window.computeBracketStructure(autoQualifiers, thirds.length);
 
   const sortedDesc = [...thirds].sort((a, b) => b.v - a.v || b.diff - a.diff || b.pointDiff - a.pointDiff);
   const barrageEligible = struct.mode === 'barrage' ? sortedDesc.slice(0, struct.barrageCount * 2) : [];
@@ -81,11 +48,11 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     return acc;
   }, []);
 
-  const fourths = pools.map((pool, idx) => {
+  const fourths = pools.map((pool) => {
     const st = poolStandings(pool);
     const p = st[3] || null;
     if (!p) return null;
-    return { player: p, label: `4e Poule ${idx + 1}` };
+    return { player: p, label: `4e (${window.poolShortLabel(pool)})` };
   }).filter(Boolean);
 
   const directConsolanteEntries = directConsolante.map(x => ({ player: x.player, label: `3e direct (${x.poolLabel})` }));
@@ -154,6 +121,19 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   React.useEffect(() => {
     localStorage.setItem('consolante-seeds', JSON.stringify(seeds));
   }, [seeds]);
+
+  // Resynchronise les seeds si la structure change en cours de session
+  // (barrage saisi, résultat de poule corrigé, poule modifiée…) :
+  // taille de bracket différente → reset ; joueur plus éligible → retiré du tableau.
+  const eligibleIdsKey = eligibleList.map(e => e.player.id).sort((a, b) => a - b).join(',');
+  React.useEffect(() => {
+    setSeeds(prev => {
+      if (prev.length !== bracketSize) return Array(bracketSize).fill(null);
+      const ok = new Set(eligibleList.map(e => e.player.id));
+      const cleaned = prev.map(p => (p && ok.has(p.id) ? p : null));
+      return cleaned.some((v, i) => v !== prev[i]) ? cleaned : prev;
+    });
+  }, [bracketSize, eligibleIdsKey]);
 
   // Joueurs déjà placés
   const placedIds = new Set(seeds.filter(Boolean).map(p => p.id));
@@ -395,7 +375,6 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   );
 
   // ── Phase de placement ────────────────────────────────────────────────────
-  const placementDone = unplaced.length === 0 || seeds.filter(Boolean).length > 0;
   const [showBracket, setShowBracket] = React.useState(() => {
     return seeds.some(Boolean);
   });
@@ -408,7 +387,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
         totalPoolMatches++;
-        if (results[`pool-${pool.id}-${ids[i]}-${ids[j]}`]) playedPoolMatches++;
+        if (results[window.poolMatchKey(pool.id, ids[i], ids[j])]) playedPoolMatches++;
       }
     }
   });

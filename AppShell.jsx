@@ -28,32 +28,6 @@ const THEMES = {
     textSecondary: '#6b7280',
     divider: '#e8eaed',
   },
-  sport: {
-    name: 'Sport',
-    sidebarBg: '#1b1a1a',
-    sidebarBorder: 'none',
-    sidebarText: 'rgba(211,211,211,0.75)',
-    sidebarActiveText: '#20bf6b',
-    sidebarActiveBg: 'rgba(32,191,107,0.12)',
-    topbarBg: '#ffffff',
-    topbarBorder: '1px solid #e8eaed',
-    pageBg: '#f0f4ff',
-    cardBg: '#ffffff',
-    cardShadow: '0 2px 12px rgba(0,0,0,0.07)',
-    cardRadius: 16,
-    primary: '#20bf6b',
-    primaryDark: '#17a35a',
-    primaryText: '#ffffff',
-    btnRadius: 24,
-    tableBorder: '#e8eaed',
-    tableHeaderBg: '#f0f4ff',
-    inputBorder: '#c7d2fe',
-    inputBg: '#f8faff',
-    tagRadius: 20,
-    textPrimary: '#111827',
-    textSecondary: '#6b7280',
-    divider: '#e8eaed',
-  },
 };
 
 const NAV_ITEMS = [
@@ -81,7 +55,7 @@ const AppShell = ({ theme, screen, onNav, children, tournamentName }) => {
         padding: '0 0 24px',
       }}>
         {/* Logo */}
-        <div style={{ padding: '20px 20px 16px', borderBottom: theme === 'classique' ? '1px solid #e8eaed' : '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid #e8eaed' }}>
           <div style={{ fontSize: 15, fontWeight: 900, color: t.primary, letterSpacing: '-0.3px' }}>TENNIS DE TABLE</div>
           <div style={{ fontSize: 11, color: t.sidebarText, marginTop: 2, opacity: 0.7, fontWeight: 500, letterSpacing: '.3px' }}>GESTION DE TOURNOI</div>
         </div>
@@ -143,4 +117,64 @@ const AppShell = ({ theme, screen, onNav, children, tournamentName }) => {
   );
 };
 
-Object.assign(window, { AppShell, THEMES });
+// Clé canonique d'un match de poule — toujours le plus petit id de joueur en premier.
+// Les sets stockés [s1, s2] sont orientés (lo, hi). Utilisée par tous les écrans,
+// pour que la clé ne dépende pas de la position des joueurs dans la poule.
+const poolMatchKey = (poolId, idA, idB) => {
+  const lo = Math.min(idA, idB);
+  const hi = Math.max(idA, idB);
+  return `pool-${poolId}-${lo}-${hi}`;
+};
+
+// Classement d'une poule — source unique pour tous les écrans.
+// Champs : v/d (victoires/défaites), sf/sa (sets pour/contre), pf/pa (points pour/contre).
+const poolStandings = (pool, players, results) => {
+  const stats = pool.playerIds.map(id => {
+    const name = players.find(p => p.id === id)?.name || '?';
+    return { id, name, v: 0, d: 0, sf: 0, sa: 0, pf: 0, pa: 0 };
+  });
+  for (let i = 0; i < pool.playerIds.length; i++) {
+    for (let j = i + 1; j < pool.playerIds.length; j++) {
+      const lo = Math.min(pool.playerIds[i], pool.playerIds[j]);
+      const hi = Math.max(pool.playerIds[i], pool.playerIds[j]);
+      const r = results[poolMatchKey(pool.id, lo, hi)];
+      if (!r) continue;
+      let w1 = 0, w2 = 0;
+      const si = stats.find(s => s.id === lo);
+      const sj = stats.find(s => s.id === hi);
+      (r.sets || []).forEach(([s1, s2]) => {
+        s1 > s2 ? w1++ : w2++;
+        si.pf += s1; si.pa += s2;
+        sj.pf += s2; sj.pa += s1;
+      });
+      if (w1 > w2) { si.v++; sj.d++; } else { sj.v++; si.d++; }
+      si.sf += w1; si.sa += w2; sj.sf += w2; sj.sa += w1;
+    }
+  }
+  return stats.sort((a, b) => b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa) || (b.pf - b.pa) - (a.pf - a.pa));
+};
+
+// Structure du tableau principal — source unique (anciennement dupliquée dans 4 fichiers).
+// Essaye les puissances de 2 en descendant depuis nextPow2(qualifiés) :
+//   missing == 0           → tableau direct
+//   missing*2 <= nb de 3es → organiser `missing` barrages (chaque barrage consomme 2 troisièmes)
+//   missing < 0            → éliminer |missing| moins bons 2es
+//   missing*2 > nb de 3es  → essayer la taille inférieure
+const computeBracketStructure = (autoQualifiers, thirdsCount) => {
+  const nextPow2 = (n) => { let b = 1; while (b < n) b *= 2; return b; };
+  let size = nextPow2(autoQualifiers);
+  while (size >= 2) {
+    const missing = size - autoQualifiers;
+    if (missing === 0) return { bracketSize: size, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
+    if (missing > 0 && missing * 2 <= thirdsCount) return { bracketSize: size, mode: 'barrage', barrageCount: missing, eliminateCount: 0 };
+    if (missing < 0) return { bracketSize: size, mode: 'eliminate', barrageCount: 0, eliminateCount: -missing };
+    size = size / 2;
+  }
+  return { bracketSize: 2, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
+};
+
+// Étiquette courte d'une poule, dérivée de son VRAI nom (« Poule A » → « A »).
+// Remplace l'ancien étiquetage par index, qui divergeait après renommage/suppression.
+const poolShortLabel = (pool) => ((pool.name || '').replace(/^poule\s*/i, '').trim() || pool.name || '?');
+
+Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, computeBracketStructure, poolShortLabel });
