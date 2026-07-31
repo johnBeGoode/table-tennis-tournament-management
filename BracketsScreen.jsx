@@ -105,6 +105,14 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
     const toQuotientShape = (s) => ({ v: s.v, d: s.d, sf: s.setsFor, sa: s.setsAgainst, pf: s.ptsFor, pa: s.ptsAgainst });
     const sortByPerf = (arr) => [...arr].sort((a, b) => window.crossPoolCompare(toQuotientShape(a), toQuotientShape(b)));
 
+    // Affichage des quotients — mêmes calculs que crossPoolCompare, pour que le
+    // tableau montre les critères réellement utilisés (et non des différences,
+    // qui n'ont jamais départagé quoi que ce soit).
+    const fmtQuot = (num, den, decimals) => {
+      if (den > 0) return (num / den).toFixed(decimals);
+      return num > 0 ? '∞' : '—';
+    };
+
     // Groupes : 1ers, 2es de poule
     const firsts  = sortByPerf(allStats.filter(s => s.poolRank === 1));
     const seconds = sortByPerf(allStats.filter(s => s.poolRank === 2));
@@ -197,12 +205,16 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
                   { l: 'Poule', a: 'left' },
                   { l: 'V', a: 'center' },
                   { l: 'D', a: 'center' },
+                  { l: 'Q. rencontre', a: 'center', crit: '1', title: 'Critère 1 — points-rencontre (2 par victoire, 1 par défaite jouée) ÷ rencontres jouées' },
                   { l: 'Sets +/−', a: 'center' },
-                  { l: 'Diff sets', a: 'center' },
+                  { l: 'Q. manches', a: 'center', crit: '2', title: 'Critère 2 — manches gagnées ÷ manches perdues' },
                   { l: 'Pts +/−', a: 'center' },
-                  { l: 'Diff pts', a: 'center' },
+                  { l: 'Q. points', a: 'center', crit: '3', title: 'Critère 3 — points-jeu gagnés ÷ points-jeu perdus' },
                 ].map((h, i) => (
-                  <th key={i} style={{ padding: '10px 14px', textAlign: h.a, fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: `1px solid ${t.tableBorder}`, whiteSpace: 'nowrap' }}>{h.l}</th>
+                  <th key={i} title={h.title} style={{ padding: '10px 14px', textAlign: h.a, fontSize: 11, fontWeight: 700, color: h.crit ? t.textPrimary : t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: `1px solid ${t.tableBorder}`, whiteSpace: 'nowrap' }}>
+                    {h.l}
+                    {h.crit && <sup style={{ fontSize: 9, fontWeight: 800, color: t.primary, marginLeft: 3 }}>{h.crit}</sup>}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -210,8 +222,17 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
               {ranked.slice(0, QUALIFIED).map((s, idx) => {
                 const rank = idx + 1;
                 const qualified = hasResults;
-                const setsDiff = s.setsFor - s.setsAgainst;
-                const ptsDiff = s.ptsFor - s.ptsAgainst;
+                const playedMatches = s.v + s.d;
+                const qRenc  = fmtQuot(2 * s.v + s.d, playedMatches, 2);
+                const qSets  = fmtQuot(s.setsFor, s.setsAgainst, 3);
+                const qPts   = fmtQuot(s.ptsFor, s.ptsAgainst, 3);
+                // Couleur des départages : seuil à 1 (autant gagné que perdu)
+                const quotColor = (str) => {
+                  const n = parseFloat(str);
+                  if (str === '∞') return '#20bf6b';
+                  if (isNaN(n)) return t.textSecondary;
+                  return n > 1 ? '#20bf6b' : n < 1 ? '#f96b6b' : t.textSecondary;
+                };
 
                 // Médaille pour top 3
                 let medal = null;
@@ -256,24 +277,27 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
                       </td>
                       <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 14, fontWeight: 800, color: '#20bf6b' }}>{s.v}</td>
                       <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 14, color: '#f96b6b', fontWeight: 600 }}>{s.d}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 14, fontWeight: 800, color: t.textPrimary, whiteSpace: 'nowrap' }}>
+                        {qRenc}
+                      </td>
                       <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 13, color: t.textSecondary, fontWeight: 500, whiteSpace: 'nowrap' }}>
                         {s.setsFor}–{s.setsAgainst}
                       </td>
-                      <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 13, fontWeight: 700, color: setsDiff > 0 ? '#20bf6b' : setsDiff < 0 ? '#f96b6b' : t.textSecondary }}>
-                        {setsDiff > 0 ? '+' : ''}{setsDiff}
+                      <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 14, fontWeight: 800, color: quotColor(qSets), whiteSpace: 'nowrap' }}>
+                        {qSets}
                       </td>
                       <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 13, color: t.textSecondary, fontWeight: 500, whiteSpace: 'nowrap' }}>
                         {s.ptsFor}–{s.ptsAgainst}
                       </td>
-                      <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 13, fontWeight: 700, color: ptsDiff > 0 ? '#20bf6b' : ptsDiff < 0 ? '#f96b6b' : t.textSecondary }}>
-                        {ptsDiff > 0 ? '+' : ''}{ptsDiff}
+                      <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 14, fontWeight: 800, color: quotColor(qPts), whiteSpace: 'nowrap' }}>
+                        {qPts}
                       </td>
                     </tr>
                 );
               })}
               {!hasResults && (
                 <tr>
-                  <td colSpan={10} style={{ padding: '40px 20px', textAlign: 'center', color: t.textSecondary, fontSize: 13 }}>
+                  <td colSpan={11} style={{ padding: '40px 20px', textAlign: 'center', color: t.textSecondary, fontSize: 13 }}>
                     <i className="fas fa-table-tennis-paddle-ball" style={{ fontSize: 28, display: 'block', marginBottom: 10, opacity: .3 }}></i>
                     Aucun match joué — saisissez des résultats pour voir le classement
                   </td>
