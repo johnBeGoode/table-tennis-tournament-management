@@ -154,6 +154,25 @@ const poolStandings = (pool, players, results) => {
   return stats.sort((a, b) => b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa) || (b.pf - b.pa) - (a.pf - a.pa));
 };
 
+// Comparateur transversal inter-poules — Art. II.109 du règlement FFTT.
+// Dès qu'on compare des joueurs de poules de tailles différentes (poules de 3 vs 4),
+// on ne compare plus des totaux bruts mais des quotients par rencontre jouée : sinon
+// un joueur ayant disputé plus de matchs est mécaniquement avantagé. Attendu : {v, d, sf, sa, pf, pa}.
+// Ordre des critères : (1) quotient points-rencontre (2 pts/victoire, 1 pt/défaite jouée) / rencontres jouées,
+// (2) quotient manches gagnées/perdues, (3) quotient points-jeu gagnés/perdus.
+const ratio = (num, den) => den > 0 ? num / den : (num > 0 ? Infinity : 0);
+const crossPoolCompare = (a, b) => {
+  const playedA = a.v + a.d, playedB = b.v + b.d;
+  const prA = ratio(2 * a.v + a.d, playedA);
+  const prB = ratio(2 * b.v + b.d, playedB);
+  if (prA !== prB) return prB - prA;
+  const setsA = ratio(a.sf, a.sa), setsB = ratio(b.sf, b.sa);
+  if (setsA !== setsB) return setsB - setsA;
+  const ptsA = ratio(a.pf, a.pa), ptsB = ratio(b.pf, b.pa);
+  if (ptsA !== ptsB) return ptsB - ptsA;
+  return 0; // égalité persistante — départage par tirage au sort (hors scope du tri auto)
+};
+
 // Structure du tableau principal — source unique (anciennement dupliquée dans 4 fichiers).
 // Essaye les puissances de 2 en descendant depuis nextPow2(qualifiés) :
 //   missing == 0           → tableau direct
@@ -177,4 +196,4 @@ const computeBracketStructure = (autoQualifiers, thirdsCount) => {
 // Remplace l'ancien étiquetage par index, qui divergeait après renommage/suppression.
 const poolShortLabel = (pool) => ((pool.name || '').replace(/^poule\s*/i, '').trim() || pool.name || '?');
 
-Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, computeBracketStructure, poolShortLabel });
+Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, poolShortLabel });

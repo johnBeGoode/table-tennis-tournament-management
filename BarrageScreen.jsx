@@ -31,7 +31,7 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
     const p = standings[2] || null;
     if (!p) return null;
     const stats = standings.find(s => s.id === p.id);
-    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
+    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, d: stats?.d || 0, sf: stats?.sf || 0, sa: stats?.sa || 0, pf: stats?.pf || 0, pa: stats?.pa || 0 };
   }).filter(Boolean);
 
   // 2es de chaque poule (utiles pour le cas "éliminer les moins bons 2es")
@@ -40,7 +40,7 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
     const p = standings[1] || null;
     if (!p) return null;
     const stats = standings.find(s => s.id === p.id);
-    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
+    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, d: stats?.d || 0, sf: stats?.sf || 0, sa: stats?.sa || 0, pf: stats?.pf || 0, pa: stats?.pa || 0 };
   }).filter(Boolean);
 
   // Structure du tableau principal — logique partagée (AppShell.computeBracketStructure)
@@ -48,12 +48,12 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
   const BRACKET_SIZE = struct.bracketSize;
   const missingSpots = struct.barrageCount;
   const barrageMatchCount = struct.barrageCount;
-  const sortedDesc = [...thirdPlacePlayers].sort((a, b) => b.v - a.v || b.diff - a.diff || b.pointDiff - a.pointDiff);
+  const sortedDesc = [...thirdPlacePlayers].sort(window.crossPoolCompare);
   const barrageEligible = struct.mode === 'barrage' ? sortedDesc.slice(0, barrageMatchCount * 2) : [];
   const directConsolante = thirdPlacePlayers.filter(x => !barrageEligible.find(e => e.poolId === x.poolId));
 
   // 2es éliminés (les moins bons) si applicable
-  const sortedSecondsAsc = [...secondPlacePlayers].sort((a, b) => a.v - b.v || a.diff - b.diff || a.pointDiff - b.pointDiff);
+  const sortedSecondsAsc = [...secondPlacePlayers].sort((a, b) => window.crossPoolCompare(b, a));
   const eliminatedSeconds = struct.mode === 'eliminate' ? sortedSecondsAsc.slice(0, struct.eliminateCount) : [];
 
   // Construction des matchs de barrage (paires)

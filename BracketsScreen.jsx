@@ -101,11 +101,9 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
 
     const allStats = buildStats();
 
-    const sortByPerf = (arr) => [...arr].sort((a, b) =>
-      b.v - a.v
-      || (b.setsFor - b.setsAgainst) - (a.setsFor - a.setsAgainst)
-      || (b.ptsFor - b.ptsAgainst) - (a.ptsFor - a.ptsAgainst)
-    );
+    // Quotients inter-poules (Art. II.109 FFTT) — pas de totaux bruts entre poules de tailles différentes
+    const toQuotientShape = (s) => ({ v: s.v, d: s.d, sf: s.setsFor, sa: s.setsAgainst, pf: s.ptsFor, pa: s.ptsAgainst });
+    const sortByPerf = (arr) => [...arr].sort((a, b) => window.crossPoolCompare(toQuotientShape(a), toQuotientShape(b)));
 
     // Groupes : 1ers, 2es de poule
     const firsts  = sortByPerf(allStats.filter(s => s.poolRank === 1));
@@ -128,11 +126,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
       keptSeconds = seconds.slice(0, Math.max(0, seconds.length - cut));
     }
 
-    const sortedThird = [...thirdPlayers].sort((a, b) =>
-      b.player.v - a.player.v
-      || (b.player.setsFor - b.player.setsAgainst) - (a.player.setsFor - a.player.setsAgainst)
-      || (b.player.ptsFor - b.player.ptsAgainst) - (a.player.ptsFor - a.player.ptsAgainst)
-    );
+    const sortedThird = [...thirdPlayers].sort((a, b) => window.crossPoolCompare(toQuotientShape(a.player), toQuotientShape(b.player)));
     const eligible = struct.mode === 'barrage' ? sortedThird.slice(0, struct.barrageCount * 2) : [];
     const barrageWinners = [];
     for (let i = 0; i < eligible.length; i += 2) {

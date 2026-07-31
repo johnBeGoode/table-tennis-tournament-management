@@ -17,7 +17,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     const p = st[2] || null;
     if (!p) return null;
     const stats = st.find(s => s.id === p.id);
-    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
+    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, d: stats?.d || 0, sf: stats?.sf || 0, sa: stats?.sa || 0, pf: stats?.pf || 0, pa: stats?.pa || 0 };
   }).filter(Boolean);
 
   const secondsAll = pools.map((pool) => {
@@ -25,17 +25,18 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     const p = st[1] || null;
     if (!p) return null;
     const stats = st.find(s => s.id === p.id);
-    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, diff: (stats?.sf || 0) - (stats?.sa || 0), pointDiff: (stats?.pf || 0) - (stats?.pa || 0) };
+    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, d: stats?.d || 0, sf: stats?.sf || 0, sa: stats?.sa || 0, pf: stats?.pf || 0, pa: stats?.pa || 0 };
   }).filter(Boolean);
 
   // Structure du tableau principal — logique partagée (AppShell.computeBracketStructure)
   const struct = window.computeBracketStructure(autoQualifiers, thirds.length);
 
-  const sortedDesc = [...thirds].sort((a, b) => b.v - a.v || b.diff - a.diff || b.pointDiff - a.pointDiff);
+  // Quotients inter-poules (Art. II.109 FFTT) — pas de totaux bruts entre poules de tailles différentes
+  const sortedDesc = [...thirds].sort(window.crossPoolCompare);
   const barrageEligible = struct.mode === 'barrage' ? sortedDesc.slice(0, struct.barrageCount * 2) : [];
   const directConsolante = thirds.filter(x => !barrageEligible.find(e => e.poolId === x.poolId));
 
-  const sortedSecondsAsc = [...secondsAll].sort((a, b) => a.v - b.v || a.diff - b.diff || a.pointDiff - b.pointDiff);
+  const sortedSecondsAsc = [...secondsAll].sort((a, b) => window.crossPoolCompare(b, a));
   const eliminatedSeconds = struct.mode === 'eliminate' ? sortedSecondsAsc.slice(0, struct.eliminateCount) : [];
 
   const barrageLosers = barrageEligible.reduce((acc, _, i) => {
@@ -73,7 +74,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   const playerStats = {};
   pools.forEach(pool => {
     poolStandings(pool).forEach(s => {
-      playerStats[s.id] = { v: s.v, diff: (s.sf || 0) - (s.sa || 0), pointDiff: (s.pf || 0) - (s.pa || 0) };
+      playerStats[s.id] = { v: s.v, d: s.d, sf: s.sf, sa: s.sa, pf: s.pf, pa: s.pa };
     });
   });
 
@@ -90,9 +91,9 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     .sort((a, b) => {
       const ca = categoryRank(a.label), cb = categoryRank(b.label);
       if (ca !== cb) return ca - cb;
-      const sa = playerStats[a.player.id] || { v: 0, diff: 0, pointDiff: 0 };
-      const sb = playerStats[b.player.id] || { v: 0, diff: 0, pointDiff: 0 };
-      return sb.v - sa.v || sb.diff - sa.diff || sb.pointDiff - sa.pointDiff || a._i - b._i;
+      const sa = playerStats[a.player.id] || { v: 0, d: 0, sf: 0, sa: 0, pf: 0, pa: 0 };
+      const sb = playerStats[b.player.id] || { v: 0, d: 0, sf: 0, sa: 0, pf: 0, pa: 0 };
+      return window.crossPoolCompare(sa, sb) || a._i - b._i;
     });
 
   const seedMap = {};
