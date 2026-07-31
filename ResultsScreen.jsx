@@ -157,22 +157,43 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
     setSetErrors(e => (e[idx] ? e.map((v, i) => i === idx ? null : v) : e));
   };
 
+  // Le score saisi manuellement est toujours traité comme le plus petit des deux
+  // (le perdant du set) : victoire normale à 11 si ≤ 9, sinon +2 points d'écart.
+  const computeOtherScore = (val) => {
+    const n = parseInt(val, 10);
+    if (isNaN(n) || n < 0 || n > 30) return null;
+    return n <= 9 ? 11 : n + 2;
+  };
+
   // Validation au blur — lit l'état courant, aucun effet de bord dans les updaters
-  const handleBlur = (idx) => {
+  // Complète automatiquement l'autre score du set à partir de celui qu'on vient de saisir.
+  const handleBlur = (idx, key) => {
     const s = sets[idx];
-    if (s.done || s.s1 === '' || s.s2 === '') return;
-    const err = scoreError(s.s1, s.s2);
+    if (s.done || s[key] === '') return;
+    const otherKey = key === 's1' ? 's2' : 's1';
+    const computed = computeOtherScore(s[key]);
+    const otherVal = computed === null ? s[otherKey] : String(computed);
+    const merged = { ...s, [otherKey]: otherVal };
+
+    if (merged.s1 === '' || merged.s2 === '') {
+      setSets(prev => prev.map((ss, i) => i === idx ? merged : ss));
+      return;
+    }
+
+    const err = scoreError(merged.s1, merged.s2);
     if (err) {
+      setSets(prev => prev.map((ss, i) => i === idx ? merged : ss));
       setSetErrors(e => e.map((v, i) => i === idx ? err : v));
       return;
     }
-    if (!isSetValid(s.s1, s.s2)) {
+    if (!isSetValid(merged.s1, merged.s2)) {
       // Score plausible mais incomplet (ex. 5–3) : feedback explicite
+      setSets(prev => prev.map((ss, i) => i === idx ? merged : ss));
       setSetErrors(e => e.map((v, i) => i === idx ? 'Set incomplet — il faut 11 pts (2 pts d\'écart)' : v));
       return;
     }
     setSetErrors(e => e.map((v, i) => i === idx ? null : v));
-    setSets(prev => prev.map((ss, i) => i === idx ? { ...ss, done: true } : ss));
+    setSets(prev => prev.map((ss, i) => i === idx ? { ...merged, done: true } : ss));
   };
 
   const handleSave = () => {
@@ -388,7 +409,7 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
                             value={s.s1}
                             ref={el => inputRefs.current[idx][0] = el}
                             onChange={e => handleChange(idx, 's1', e.target.value)}
-                            onBlur={() => handleBlur(idx)}
+                            onBlur={() => handleBlur(idx, 's1')}
                             style={{ width: 56, textAlign: 'center', borderRadius: 6, border: `1.5px solid ${set1won ? t.primary : t.inputBorder}`, background: set1won ? `${t.primary}10` : t.inputBg, fontSize: 20, fontWeight: 900, color: set1won ? t.primary : t.textPrimary, padding: '6px 4px', outline: 'none', opacity: !isActive && !s.done ? .4 : 1 }}
                           />
                         </div>
@@ -401,12 +422,12 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
                             value={s.s2}
                             ref={el => inputRefs.current[idx][1] = el}
                             onChange={e => handleChange(idx, 's2', e.target.value)}
-                            onBlur={() => handleBlur(idx)}
+                            onBlur={() => handleBlur(idx, 's2')}
                             onKeyDown={e => {
                               if (e.key !== 'Tab') return;
                               e.preventDefault();
                               // Valider le set courant
-                              handleBlur(idx);
+                              handleBlur(idx, 's2');
                               // Focus sur le s1 du set suivant (après rendu)
                               setTimeout(() => {
                                 const next = inputRefs.current[idx + 1]?.[0];
