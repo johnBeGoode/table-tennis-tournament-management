@@ -39,8 +39,9 @@ const NAV_ITEMS = [
   { id: 'consolante', label: 'Consolante',          icon: 'fas fa-shield-halved' },
 ];
 
-const AppShell = ({ theme, screen, onNav, children, tournamentName }) => {
+const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll }) => {
   const t = THEMES[theme];
+  const [confirmReset, setConfirmReset] = React.useState(false);
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: "'Roboto', sans-serif", background: t.pageBg }}>
@@ -86,8 +87,51 @@ const AppShell = ({ theme, screen, onNav, children, tournamentName }) => {
           })}
         </nav>
 
+        {/* Réinitialisation complète du tournoi */}
+        <div style={{ padding: '8px 10px' }}>
+          <button onClick={() => setConfirmReset(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              width: '100%', padding: '10px 12px', borderRadius: 8,
+              border: 'none', cursor: 'pointer', textAlign: 'left',
+              background: 'transparent', color: '#f96b6b',
+              fontWeight: 500, fontSize: 14,
+            }}>
+            <i className="fas fa-trash-alt" style={{ width: 18, textAlign: 'center', fontSize: 15 }}></i>
+            Réinitialiser
+          </button>
+        </div>
 
       </aside>
+
+      {/* Modale confirmation réinitialisation */}
+      {confirmReset && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
+          onClick={() => setConfirmReset(false)}>
+          <div style={{ background: t.cardBg, borderRadius: 14, padding: '28px 28px 22px', width: 300, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#fff0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <i className="fas fa-trash-alt" style={{ color: '#f96b6b', fontSize: 18 }}></i>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>
+              Réinitialiser le tournoi ?
+            </div>
+            <div style={{ fontSize: 13, color: t.textSecondary, marginBottom: 24, lineHeight: 1.5 }}>
+              Tous les joueurs et toutes les poules seront définitivement supprimés.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConfirmReset(false)}
+                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                Annuler
+              </button>
+              <button onClick={() => { onResetAll(); setConfirmReset(false); }}
+                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: '#f96b6b', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                Réinitialiser
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

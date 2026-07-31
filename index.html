@@ -21,8 +21,8 @@
 <div id="root"></div>
 
 <script type="text/babel" src="AppShell.jsx?v=3"></script>
-<script type="text/babel" src="PoolsScreen.jsx?v=3"></script>
-<script type="text/babel" src="BracketsScreen.jsx?v=5"></script>
+<script type="text/babel" src="PoolsScreen.jsx?v=5"></script>
+<script type="text/babel" src="BracketsScreen.jsx?v=6"></script>
 <script type="text/babel" src="ResultsScreen.jsx?v=4"></script>
 <script type="text/babel">
 // KnockoutScreen — Tableau dynamique (n poules)
@@ -335,21 +335,25 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
           if (isLastRound) {
             // Colonne finale : finale + 3e place
             const finalMatch = round[0];
+            // Bloc 3e place — dupliqué en version invisible au-dessus de la finale
+            // pour contrebalancer sa hauteur : ainsi le centre visuel de la finale
+            // reste aligné sur le point médian des 2 demi-finales, quelle que soit
+            // la présence ou non du match de 3e place.
+            const thirdPlaceBlock = thirdPlaceMatch && (
+              <div>
+                <div style={{ borderTop: `2px dashed ${t.textSecondary}`, marginBottom: 20, opacity: 0.35 }}></div>
+                <MatchCard match={thirdPlaceMatch} isHighlight={false} customLabel="3e place" />
+              </div>
+            );
             return (
               <React.Fragment key={rIdx}>
                 <Arrow count={nextCount || 1} />
                 <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, alignSelf: 'stretch', minWidth: 185 }}>
                   <ColHeader label={label} />
-                  <div style={{ flex: 1, position: 'relative' }}>
-                    <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: '100%' }}>
-                      <MatchCard match={finalMatch} isHighlight={true} />
-                    </div>
-                    {thirdPlaceMatch && (
-                      <div style={{ position: 'absolute', bottom: 0, width: '100%' }}>
-                        <div style={{ borderTop: `2px dashed ${t.textSecondary}`, paddingTop: 10, opacity: 0.35 }}></div>
-                        <MatchCard match={thirdPlaceMatch} isHighlight={false} customLabel="3e place" />
-                      </div>
-                    )}
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 20 }}>
+                    {thirdPlaceMatch && <div style={{ visibility: 'hidden' }}>{thirdPlaceBlock}</div>}
+                    <MatchCard match={finalMatch} isHighlight={true} />
+                    {thirdPlaceBlock}
                   </div>
                 </div>
               </React.Fragment>
@@ -489,6 +493,14 @@ const App = () => {
 
   const handleScreen = (v) => setScreen(v);
 
+  const resetAll = () => {
+    setPlayers([]);
+    setPools([]);
+    setResults({});
+    setBracketResults({});
+    setBarrageResults({});
+  };
+
   const screenMap = {
     poules:     <PoolsScreen    theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateSetsToWin={setSetsToWin} onUpdatePlayers={setPlayers} onUpdatePools={setPools} />,
     brackets:   <BracketsScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} />,
@@ -499,7 +511,7 @@ const App = () => {
   };
 
   return (
-    <AppShell theme={theme} screen={screen} onNav={handleScreen} tournamentName="Tournoi Amical Printemps 2026">
+    <AppShell theme={theme} screen={screen} onNav={handleScreen} tournamentName="Tournoi Amical Printemps 2026" onResetAll={resetAll}>
       {screenMap[screen]}
     </AppShell>
   );

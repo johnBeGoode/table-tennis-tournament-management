@@ -4,12 +4,14 @@
 const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsToWin, onUpdatePlayers, onUpdatePools }) => {
   const t = window.THEMES[theme];
   const [newName, setNewName] = React.useState('');
+  const [newRanking, setNewRanking] = React.useState('');
   const [newPoolName, setNewPoolName] = React.useState('');
   const [addingToPool, setAddingToPool] = React.useState(null); // poolId en cours d'ajout
   const [confirmDeletePool, setConfirmDeletePool] = React.useState(null); // poolId en attente de confirmation
   const [confirmDeletePlayer, setConfirmDeletePlayer] = React.useState(null); // playerId en attente de confirmation
-  const [confirmClearPlayers, setConfirmClearPlayers] = React.useState(false);
-  const [confirmClearPools, setConfirmClearPools] = React.useState(false);
+  const [showAutoDraw, setShowAutoDraw] = React.useState(false); // modale de répartition automatique
+  const [autoPoolCount, setAutoPoolCount] = React.useState(null); // null = valeur par défaut (poules de 4)
+  const nameInputRef = React.useRef(null); // pour rendre le focus au nom après chaque ajout
 
   // Format verrouillé dès qu'un match de poule a un résultat enregistré
   const formatLocked = Object.keys(results || {}).some(k => k.startsWith('pool-'));
@@ -20,8 +22,60 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
 
   const addPlayer = () => {
     if (!newName.trim()) return;
-    onUpdatePlayers(prev => [...prev, { id: Date.now(), name: newName.trim() }]);
+    const ranking = newRanking.trim() === '' ? null : Number(newRanking.trim());
+    onUpdatePlayers(prev => [...prev, { id: Date.now(), name: newName.trim(), ranking: Number.isFinite(ranking) ? ranking : null }]);
     setNewName('');
+    setNewRanking('');
+    // Saisie en rafale : le curseur revient au nom, jamais au classement.
+    nameInputRef.current?.focus();
+  };
+
+  // Meilleur classé (points les plus élevés) en premier ; non classés relégués en fin de liste.
+  const sortedPlayers = [...players].sort((a, b) => {
+    const ra = typeof a.ranking === 'number' ? a.ranking : -Infinity;
+    const rb = typeof b.ranking === 'number' ? b.ranking : -Infinity;
+    if (rb !== ra) return rb - ra;
+    return a.name.localeCompare(b.name);
+  });
+
+  // Méthode du serpent : les joueurs, triés du meilleur au moins bon, sont distribués
+  // en zigzag sur `poolCount` poules — A, B, … H, puis H, G, … A, puis A, B, … et ainsi
+  // de suite. Chaque poule récupère donc un joueur de chaque quartile de niveau : les
+  // poules sont homogènes entre elles, hétérogènes en interne.
+  const snakeDistribute = (ordered, poolCount) => {
+    const buckets = Array.from({ length: poolCount }, () => []);
+    ordered.forEach((player, i) => {
+      const row = Math.floor(i / poolCount);   // n° de passage sur la ligne de poules
+      const pos = i % poolCount;               // position dans le passage
+      const idx = row % 2 === 0 ? pos : poolCount - 1 - pos; // 1 passage sur 2 à l'envers
+      buckets[idx].push(player);
+    });
+    return buckets;
+  };
+
+  // Poule A…Z, puis « Poule 27 » au-delà de l'alphabet.
+  const autoPoolName = (i) => `Poule ${i < 26 ? String.fromCharCode(65 + i) : i + 1}`;
+
+  // Nombre de poules par défaut : on vise des poules de 4 (format le plus courant).
+  const defaultPoolCount = Math.max(1, Math.ceil(players.length / 4));
+  const effectivePoolCount = Math.min(
+    Math.max(1, autoPoolCount ?? defaultPoolCount),
+    Math.max(1, players.length)
+  );
+  const previewBuckets = players.length > 0 ? snakeDistribute(sortedPlayers, effectivePoolCount) : [];
+
+  // Remplace intégralement les poules existantes par la répartition serpentin.
+  // Les résultats de poule devenus orphelins sont purgés automatiquement par App.
+  const applyAutoDraw = () => {
+    const buckets = snakeDistribute(sortedPlayers, effectivePoolCount);
+    const base = Date.now();
+    onUpdatePools(buckets.map((bucket, i) => ({
+      id: base + i,
+      name: autoPoolName(i),
+      playerIds: bucket.map(p => p.id),
+    })));
+    setShowAutoDraw(false);
+    setAutoPoolCount(null);
   };
 
   const removePlayer = (id) => {
@@ -45,15 +99,6 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
 
   const removePool = (poolId) => {
     onUpdatePools(prev => prev.filter(p => p.id !== poolId));
-  };
-
-  const clearAllPlayers = () => {
-    onUpdatePlayers(() => []);
-    onUpdatePools(prev => prev.map(pool => ({ ...pool, playerIds: [] })));
-  };
-
-  const clearAllPools = () => {
-    onUpdatePools(() => []);
   };
 
   const assignPlayer = (poolId, playerId) => {
@@ -158,40 +203,46 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
           <div style={{ fontSize: 12, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px' }}>
             Joueurs ({players.length})
           </div>
-          {players.length > 0 && (
-            <button onClick={() => setConfirmClearPlayers(true)}
-              style={{ background: 'transparent', border: 'none', color: '#f96b6b', cursor: 'pointer', fontSize: 11, fontWeight: 600, padding: 0, opacity: 0.75 }}
-              onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-              onMouseLeave={e => e.currentTarget.style.opacity = '0.75'}>
-              <i className="fas fa-trash-alt" style={{ marginRight: 5 }}></i>Tout effacer
-            </button>
-          )}
         </div>
 
         {/* Add player */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          <input
-            placeholder="Nom du joueur…"
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addPlayer()}
-            style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: `1px solid ${t.inputBorder}`, background: t.inputBg, fontSize: 14, color: t.textPrimary, outline: 'none' }}
-          />
-          <button onClick={addPlayer} style={{ background: t.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 12px', fontWeight: 700, cursor: 'pointer', fontSize: 16 }}>+</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              ref={nameInputRef}
+              placeholder="Nom du joueur…"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addPlayer()}
+              style={{ flex: 1, minWidth: 0, padding: '8px 12px', borderRadius: 8, border: `1px solid ${t.inputBorder}`, background: t.inputBg, fontSize: 14, color: t.textPrimary, outline: 'none' }}
+            />
+            <input
+              placeholder="Classement"
+              title="Classement (points)"
+              type="number"
+              value={newRanking}
+              onChange={e => setNewRanking(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addPlayer()}
+              style={{ width: 90, minWidth: 0, flexShrink: 0, padding: '8px 10px', borderRadius: 8, border: `1px solid ${t.inputBorder}`, background: t.inputBg, fontSize: 14, color: t.textPrimary, outline: 'none' }}
+            />
+          </div>
+          <button onClick={addPlayer} style={{ background: t.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 12px', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>
+            <i className="fas fa-plus" style={{ marginRight: 6 }}></i>Ajouter le joueur
+          </button>
         </div>
 
-        {/* Player list */}
+        {/* Player list — triée du mieux classé au moins bien classé */}
         <div style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, overflow: 'hidden' }}>
-          {players.length === 0 && (
+          {sortedPlayers.length === 0 && (
             <div style={{ padding: '24px 16px', textAlign: 'center', color: t.textSecondary, fontSize: 13 }}>
               Aucun joueur ajouté
             </div>
           )}
-          {players.map((p, i) => (
+          {sortedPlayers.map((p, i) => (
             <div key={p.id} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '10px 14px',
-              borderBottom: i < players.length - 1 ? `1px solid ${t.tableBorder}` : 'none',
+              borderBottom: i < sortedPlayers.length - 1 ? `1px solid ${t.tableBorder}` : 'none',
               background: assignedIds.has(p.id) ? `${t.primary}06` : 'transparent',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -199,6 +250,9 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
                   {p.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
                 </div>
                 <span style={{ fontSize: 14, color: t.textPrimary, fontWeight: 500 }}>{p.name}</span>
+                <span style={{ fontSize: 11, color: t.textSecondary, fontWeight: 600 }}>
+                  {typeof p.ranking === 'number' ? p.ranking : '—'}
+                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {assignedIds.has(p.id) && (
@@ -224,14 +278,18 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
             Poules ({pools.length})
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {pools.length > 0 && (
-              <button onClick={() => setConfirmClearPools(true)}
-                style={{ background: 'transparent', border: 'none', color: '#f96b6b', cursor: 'pointer', fontSize: 12, fontWeight: 600, padding: '7px 4px', opacity: 0.75 }}
-                onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                onMouseLeave={e => e.currentTarget.style.opacity = '0.75'}>
-                <i className="fas fa-trash-alt" style={{ marginRight: 5 }}></i>Tout effacer
-              </button>
-            )}
+            <button onClick={() => { setAutoPoolCount(null); setShowAutoDraw(true); }}
+              disabled={players.length < 2}
+              title={players.length < 2 ? 'Ajoutez au moins 2 joueurs' : 'Répartir les joueurs par la méthode du serpent'}
+              style={{
+                background: 'transparent', color: t.primary,
+                border: `1.5px solid ${t.primary}`, borderRadius: 8,
+                padding: '6px 14px', fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap',
+                cursor: players.length < 2 ? 'not-allowed' : 'pointer',
+                opacity: players.length < 2 ? 0.4 : 1,
+              }}>
+              <i className="fas fa-wand-magic-sparkles" style={{ marginRight: 6 }}></i>Répartition auto
+            </button>
             <input
               placeholder={nextAutoPoolName}
               value={newPoolName}
@@ -252,14 +310,15 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        {/* Grille : colonnes de largeur égale, même en fin de ligne incomplète. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16, alignItems: 'start' }}>
           {pools.map(pool => {
             const poolPlayers = pool.playerIds.map(id => players.find(p => p.id === id)).filter(Boolean);
             const availableToAdd = unassigned;
             const isAdding = addingToPool === pool.id;
 
             return (
-              <div key={pool.id} style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, overflow: 'hidden', minWidth: 200, flex: 1 }}>
+              <div key={pool.id} style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, overflow: 'hidden' }}>
                 {/* Pool header */}
                 <div style={{ padding: '12px 16px', background: t.tableHeaderBg, borderBottom: `1px solid ${t.tableBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ background: t.primary, color: '#fff', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>{pool.name}</span>
@@ -319,6 +378,108 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
           })}
         </div>
       </div>
+
+      {/* Modale de répartition automatique — méthode du serpent */}
+      {showAutoDraw && (() => {
+        // Raccourcis « poules de N » — proposés seulement s'ils ont du sens vu l'effectif.
+        const presets = [3, 4, 5]
+          .map(size => ({ size, count: Math.ceil(players.length / size) }))
+          .filter((p, i, arr) => p.count >= 1 && arr.findIndex(o => o.count === p.count) === i);
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
+            onClick={() => setShowAutoDraw(false)}>
+            <div style={{ background: t.cardBg, borderRadius: 14, padding: '26px 28px 22px', width: 620, maxWidth: '92vw', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 16px 48px rgba(0,0,0,0.2)' }}
+              onClick={e => e.stopPropagation()}>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: `${t.primary}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <i className="fas fa-wand-magic-sparkles" style={{ color: t.primary, fontSize: 15 }}></i>
+                </div>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: t.textPrimary }}>Répartition automatique</div>
+                  <div style={{ fontSize: 12, color: t.textSecondary, marginTop: 2 }}>
+                    Méthode du serpent — {players.length} joueur{players.length > 1 ? 's' : ''} classé{players.length > 1 ? 's' : ''} du meilleur au moins bon
+                  </div>
+                </div>
+              </div>
+
+              {/* Choix du nombre de poules */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '18px 0 14px' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px' }}>
+                  Nombre de poules
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2, border: `1px solid ${t.tableBorder}`, borderRadius: 8, background: t.pageBg, padding: 3 }}>
+                  <button onClick={() => setAutoPoolCount(Math.max(1, effectivePoolCount - 1))}
+                    disabled={effectivePoolCount <= 1}
+                    style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'transparent', color: t.textSecondary, cursor: effectivePoolCount <= 1 ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+                    <i className="fas fa-minus"></i>
+                  </button>
+                  <span style={{ minWidth: 30, textAlign: 'center', fontSize: 15, fontWeight: 700, color: t.textPrimary }}>{effectivePoolCount}</span>
+                  <button onClick={() => setAutoPoolCount(Math.min(players.length, effectivePoolCount + 1))}
+                    disabled={effectivePoolCount >= players.length}
+                    style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'transparent', color: t.textSecondary, cursor: effectivePoolCount >= players.length ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+                    <i className="fas fa-plus"></i>
+                  </button>
+                </div>
+                {presets.map(p => {
+                  const active = p.count === effectivePoolCount;
+                  return (
+                    <button key={p.size} onClick={() => setAutoPoolCount(p.count)}
+                      style={{
+                        border: `1px solid ${active ? t.primary : t.tableBorder}`,
+                        background: active ? `${t.primary}12` : 'transparent',
+                        color: active ? t.primary : t.textSecondary,
+                        borderRadius: 7, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                      }}>
+                      Poules de {p.size}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Aperçu de la répartition */}
+              <div style={{ flex: 1, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10, paddingRight: 2 }}>
+                {previewBuckets.map((bucket, i) => (
+                  <div key={i} style={{ border: `1px solid ${t.tableBorder}`, borderRadius: 10, overflow: 'hidden' }}>
+                    <div style={{ background: t.tableHeaderBg, padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${t.tableBorder}` }}>
+                      <span style={{ background: t.primary, color: '#fff', borderRadius: 5, padding: '1px 8px', fontSize: 11, fontWeight: 700 }}>{autoPoolName(i)}</span>
+                      <span style={{ fontSize: 11, color: t.textSecondary }}>{bucket.length}</span>
+                    </div>
+                    {bucket.map(p => (
+                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '5px 10px', fontSize: 12, color: t.textPrimary }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                        <span style={{ color: t.textSecondary, fontWeight: 600, flexShrink: 0 }}>
+                          {typeof p.ranking === 'number' ? p.ranking : '—'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+
+              {pools.length > 0 && (
+                <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 8, background: '#fff8ec', border: '1px solid #f5dfb8', fontSize: 12, color: '#8a6212', lineHeight: 1.5 }}>
+                  <i className="fas fa-triangle-exclamation" style={{ marginRight: 6 }}></i>
+                  Les {pools.length} poule{pools.length > 1 ? 's' : ''} actuelle{pools.length > 1 ? 's' : ''} ser{pools.length > 1 ? 'ont' : 'a'} remplacée{pools.length > 1 ? 's' : ''}
+                  {formatLocked ? ', et les résultats de poule déjà saisis seront perdus.' : '.'}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+                <button onClick={() => setShowAutoDraw(false)}
+                  style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                  Annuler
+                </button>
+                <button onClick={applyAutoDraw}
+                  style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: t.primary, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                  <i className="fas fa-wand-magic-sparkles" style={{ marginRight: 6 }}></i>Répartir
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modale confirmation suppression joueur */}
       {confirmDeletePlayer && (() => {
@@ -384,63 +545,6 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
         );
       })()}
 
-      {/* Modale confirmation suppression de tous les joueurs */}
-      {confirmClearPlayers && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-          onClick={() => setConfirmClearPlayers(false)}>
-          <div style={{ background: t.cardBg, borderRadius: 14, padding: '28px 28px 22px', width: 300, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', textAlign: 'center' }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#fff0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-              <i className="fas fa-user-minus" style={{ color: '#f96b6b', fontSize: 18 }}></i>
-            </div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>
-              Effacer tous les joueurs ?
-            </div>
-            <div style={{ fontSize: 13, color: t.textSecondary, marginBottom: 24, lineHeight: 1.5 }}>
-              Les {players.length} joueur{players.length !== 1 ? 's seront' : ' sera'} définitivement supprimé{players.length !== 1 ? 's' : ''} et retiré{players.length !== 1 ? 's' : ''} de toutes les poules.
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setConfirmClearPlayers(false)}
-                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-                Annuler
-              </button>
-              <button onClick={() => { clearAllPlayers(); setConfirmClearPlayers(false); }}
-                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: '#f96b6b', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-                Tout effacer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modale confirmation suppression de toutes les poules */}
-      {confirmClearPools && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-          onClick={() => setConfirmClearPools(false)}>
-          <div style={{ background: t.cardBg, borderRadius: 14, padding: '28px 28px 22px', width: 300, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', textAlign: 'center' }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#fff0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-              <i className="fas fa-trash-alt" style={{ color: '#f96b6b', fontSize: 18 }}></i>
-            </div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>
-              Effacer toutes les poules ?
-            </div>
-            <div style={{ fontSize: 13, color: t.textSecondary, marginBottom: 24, lineHeight: 1.5 }}>
-              Les joueurs ne seront pas supprimés, mais les {pools.length} poule{pools.length !== 1 ? 's' : ''} seront définitivement retirées.
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setConfirmClearPools(false)}
-                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-                Annuler
-              </button>
-              <button onClick={() => { clearAllPools(); setConfirmClearPools(false); }}
-                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: '#f96b6b', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-                Tout effacer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       </div>
     </div>
   );

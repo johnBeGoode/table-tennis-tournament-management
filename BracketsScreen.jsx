@@ -313,7 +313,9 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
   return (
     <div>
       {renderTabs()}
-      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      {/* Grille : colonnes de largeur égale. Un flex-wrap étirerait la carte
+          seule sur sa ligne (ex. la 4e poule) sur toute la largeur. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20, alignItems: 'start' }}>
       {pools.map((pool, poolIdx) => {
         const standings = poolStandings(pool);
         const played = playedMatches(pool);
@@ -321,7 +323,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
         const accentColor = POOL_COLORS[poolIdx % POOL_COLORS.length];
 
         return (
-          <div key={pool.id} style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, overflow: 'hidden', minWidth: 320, flex: 1 }}>
+          <div key={pool.id} style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, overflow: 'hidden' }}>
             {/* Pool header */}
             <div style={{ padding: '14px 20px', borderBottom: `1px solid ${t.tableBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: t.tableHeaderBg }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
