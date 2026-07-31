@@ -2,8 +2,8 @@
 Organize a friendly table tennis tournament within your club or enterprise.
 
 ## Steps
-1. Create players and pools
-2. Put players in pools
+1. Create players
+2. Click on "répartition auto" (snake draft)
 3. Enter the scores
 4. Enjoy
 
@@ -18,6 +18,7 @@ Organize a friendly table tennis tournament within your club or enterprise.
 
 
 ## Features
+- Automatic assignment of players to pools
 - Players rankings after pools matches
 - Playoff management
 - Main bracket management
