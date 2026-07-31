@@ -8,6 +8,8 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
   const [addingToPool, setAddingToPool] = React.useState(null); // poolId en cours d'ajout
   const [confirmDeletePool, setConfirmDeletePool] = React.useState(null); // poolId en attente de confirmation
   const [confirmDeletePlayer, setConfirmDeletePlayer] = React.useState(null); // playerId en attente de confirmation
+  const [confirmClearPlayers, setConfirmClearPlayers] = React.useState(false);
+  const [confirmClearPools, setConfirmClearPools] = React.useState(false);
 
   // Format verrouillé dès qu'un match de poule a un résultat enregistré
   const formatLocked = Object.keys(results || {}).some(k => k.startsWith('pool-'));
@@ -43,6 +45,15 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
 
   const removePool = (poolId) => {
     onUpdatePools(prev => prev.filter(p => p.id !== poolId));
+  };
+
+  const clearAllPlayers = () => {
+    onUpdatePlayers(() => []);
+    onUpdatePools(prev => prev.map(pool => ({ ...pool, playerIds: [] })));
+  };
+
+  const clearAllPools = () => {
+    onUpdatePools(() => []);
   };
 
   const assignPlayer = (poolId, playerId) => {
@@ -143,8 +154,18 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
 
       {/* Left: player list */}
       <div style={{ width: 260, flexShrink: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 12 }}>
-          Joueurs ({players.length})
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px' }}>
+            Joueurs ({players.length})
+          </div>
+          {players.length > 0 && (
+            <button onClick={() => setConfirmClearPlayers(true)}
+              style={{ background: 'transparent', border: 'none', color: '#f96b6b', cursor: 'pointer', fontSize: 11, fontWeight: 600, padding: 0, opacity: 0.75 }}
+              onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+              onMouseLeave={e => e.currentTarget.style.opacity = '0.75'}>
+              <i className="fas fa-trash-alt" style={{ marginRight: 5 }}></i>Tout effacer
+            </button>
+          )}
         </div>
 
         {/* Add player */}
@@ -203,6 +224,14 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
             Poules ({pools.length})
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {pools.length > 0 && (
+              <button onClick={() => setConfirmClearPools(true)}
+                style={{ background: 'transparent', border: 'none', color: '#f96b6b', cursor: 'pointer', fontSize: 12, fontWeight: 600, padding: '7px 4px', opacity: 0.75 }}
+                onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                onMouseLeave={e => e.currentTarget.style.opacity = '0.75'}>
+                <i className="fas fa-trash-alt" style={{ marginRight: 5 }}></i>Tout effacer
+              </button>
+            )}
             <input
               placeholder={nextAutoPoolName}
               value={newPoolName}
@@ -354,6 +383,64 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
           </div>
         );
       })()}
+
+      {/* Modale confirmation suppression de tous les joueurs */}
+      {confirmClearPlayers && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
+          onClick={() => setConfirmClearPlayers(false)}>
+          <div style={{ background: t.cardBg, borderRadius: 14, padding: '28px 28px 22px', width: 300, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#fff0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <i className="fas fa-user-minus" style={{ color: '#f96b6b', fontSize: 18 }}></i>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>
+              Effacer tous les joueurs ?
+            </div>
+            <div style={{ fontSize: 13, color: t.textSecondary, marginBottom: 24, lineHeight: 1.5 }}>
+              Les {players.length} joueur{players.length !== 1 ? 's seront' : ' sera'} définitivement supprimé{players.length !== 1 ? 's' : ''} et retiré{players.length !== 1 ? 's' : ''} de toutes les poules.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConfirmClearPlayers(false)}
+                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                Annuler
+              </button>
+              <button onClick={() => { clearAllPlayers(); setConfirmClearPlayers(false); }}
+                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: '#f96b6b', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                Tout effacer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale confirmation suppression de toutes les poules */}
+      {confirmClearPools && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
+          onClick={() => setConfirmClearPools(false)}>
+          <div style={{ background: t.cardBg, borderRadius: 14, padding: '28px 28px 22px', width: 300, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#fff0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <i className="fas fa-trash-alt" style={{ color: '#f96b6b', fontSize: 18 }}></i>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>
+              Effacer toutes les poules ?
+            </div>
+            <div style={{ fontSize: 13, color: t.textSecondary, marginBottom: 24, lineHeight: 1.5 }}>
+              Les joueurs ne seront pas supprimés, mais les {pools.length} poule{pools.length !== 1 ? 's' : ''} seront définitivement retirées.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConfirmClearPools(false)}
+                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                Annuler
+              </button>
+              <button onClick={() => { clearAllPools(); setConfirmClearPools(false); }}
+                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: '#f96b6b', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                Tout effacer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );
