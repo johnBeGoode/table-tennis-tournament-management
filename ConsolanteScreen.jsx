@@ -559,21 +559,27 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
 
             if (isLastRound) {
               const finalMatch = round[0];
+              // Bloc 3e place — dupliqué en version invisible au-dessus de la finale
+              // pour contrebalancer sa hauteur : ainsi le centre visuel de la finale
+              // reste aligné sur le point médian des 2 demi-finales, quelle que soit
+              // la présence ou non du match de 3e place. Même construction que le
+              // tableau principal : en flux normal, jamais en position absolue, qui
+              // faisait chevaucher les deux cartes sur les petits tableaux.
+              const thirdPlaceBlock = thirdPlaceMatch && (
+                <div>
+                  <div style={{ borderTop: `2px dashed ${t.textSecondary}`, marginBottom: 20, opacity: 0.35 }}></div>
+                  <MatchCard match={thirdPlaceMatch} isHighlight={false} customLabel="3e place" />
+                </div>
+              );
               return (
                 <React.Fragment key={rIdx}>
                   <Arrow count={nextCount || 1} />
                   <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, alignSelf: 'stretch', minWidth: 185 }}>
                     <ColHeader label={label} />
-                    <div style={{ flex: 1, position: 'relative' }}>
-                      <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: '100%' }}>
-                        <MatchCard match={finalMatch} isHighlight={true} />
-                      </div>
-                      {thirdPlaceMatch && (
-                        <div style={{ position: 'absolute', bottom: 0, width: '100%' }}>
-                          <div style={{ borderTop: `2px dashed ${t.textSecondary}`, paddingTop: 10, opacity: 0.35 }}></div>
-                          <MatchCard match={thirdPlaceMatch} isHighlight={false} customLabel="3e place" />
-                        </div>
-                      )}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 20 }}>
+                      {thirdPlaceMatch && <div style={{ visibility: 'hidden' }}>{thirdPlaceBlock}</div>}
+                      <MatchCard match={finalMatch} isHighlight={true} />
+                      {thirdPlaceBlock}
                     </div>
                   </div>
                 </React.Fragment>
