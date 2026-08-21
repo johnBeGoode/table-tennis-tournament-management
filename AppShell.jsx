@@ -39,9 +39,19 @@ const NAV_ITEMS = [
   { id: 'consolante', label: 'Consolante',          icon: 'fas fa-shield-halved' },
 ];
 
-const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll }) => {
+const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll, onSeedPlayers }) => {
   const t = THEMES[theme];
   const [confirmReset, setConfirmReset] = React.useState(false);
+  const [showSeed, setShowSeed] = React.useState(false);   // modale « joueurs de test »
+  const [seedCount, setSeedCount] = React.useState('24');
+
+  const submitSeed = () => {
+    const n = parseInt(seedCount, 10);
+    if (!Number.isFinite(n) || n < 2) return;
+    onSeedPlayers(Math.min(n, MAX_TEST_PLAYERS));
+    setShowSeed(false);
+    setSeedCount('24');
+  };
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: "'Roboto', sans-serif", background: t.pageBg }}>
@@ -87,6 +97,21 @@ const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll }
           })}
         </nav>
 
+        {/* Génération de joueurs de test */}
+        <div style={{ padding: '8px 10px 0' }}>
+          <button onClick={() => setShowSeed(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              width: '100%', padding: '10px 12px', borderRadius: 8,
+              border: 'none', cursor: 'pointer', textAlign: 'left',
+              background: 'transparent', color: t.primary,
+              fontWeight: 500, fontSize: 14,
+            }}>
+            <i className="fas fa-user-plus" style={{ width: 18, textAlign: 'center', fontSize: 15 }}></i>
+            Joueurs de test
+          </button>
+        </div>
+
         {/* Réinitialisation complète du tournoi */}
         <div style={{ padding: '8px 10px' }}>
           <button onClick={() => setConfirmReset(true)}
@@ -127,6 +152,42 @@ const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll }
               <button onClick={() => { onResetAll(); setConfirmReset(false); }}
                 style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: '#f96b6b', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
                 Réinitialiser
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale génération de joueurs de test */}
+      {showSeed && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
+          onClick={() => setShowSeed(false)}>
+          <div style={{ background: t.cardBg, borderRadius: 14, padding: '28px 28px 22px', width: 300, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: `${t.primary}1a`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <i className="fas fa-user-plus" style={{ color: t.primary, fontSize: 18 }}></i>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>
+              Générer des joueurs de test
+            </div>
+            <div style={{ fontSize: 13, color: t.textSecondary, marginBottom: 18, lineHeight: 1.5 }}>
+              Remplace les joueurs, les poules et les résultats existants.
+            </div>
+            <input
+              type="number" min={2} max={MAX_TEST_PLAYERS} autoFocus
+              value={seedCount}
+              onChange={e => setSeedCount(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') submitSeed(); }}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: t.btnRadius, border: `1.5px solid ${t.inputBorder}`, background: t.inputBg, color: t.textPrimary, fontSize: 15, fontWeight: 600, textAlign: 'center', marginBottom: 20, fontFamily: 'inherit' }}
+            />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowSeed(false)}
+                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                Annuler
+              </button>
+              <button onClick={submitSeed}
+                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: t.primary, color: t.primaryText, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                Générer
               </button>
             </div>
           </div>
@@ -240,4 +301,39 @@ const computeBracketStructure = (autoQualifiers, thirdsCount) => {
 // Remplace l'ancien étiquetage par index, qui divergeait après renommage/suppression.
 const poolShortLabel = (pool) => ((pool.name || '').replace(/^poule\s*/i, '').trim() || pool.name || '?');
 
-Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, poolShortLabel });
+// --- Données de test ---------------------------------------------------------
+// Prénoms piochés pour les joueurs générés depuis la sidebar.
+const TEST_FIRST_NAMES = [
+  'Antoine', 'Baptiste', 'Camille', 'Chloé', 'Clément', 'Damien', 'Élodie', 'Émilie',
+  'Fabien', 'Florian', 'Gaëlle', 'Guillaume', 'Hugo', 'Inès', 'Jérôme', 'Julien',
+  'Karim', 'Laura', 'Léa', 'Loïc', 'Lucas', 'Manon', 'Mathieu', 'Maxime',
+  'Mehdi', 'Nathan', 'Nicolas', 'Noémie', 'Olivier', 'Pauline', 'Quentin', 'Romain',
+  'Sarah', 'Sébastien', 'Sofiane', 'Thomas', 'Valentin', 'Vincent', 'Yanis', 'Zoé',
+];
+
+const MAX_TEST_PLAYERS = 128;
+
+// Génère `count` joueurs de test : prénoms distincts (tirés sans remise, puis
+// suffixés « Julien 2 » au-delà de la liste) et points FFTT plausibles, avec
+// environ 10 % de non-classés (ranking null) pour couvrir ce cas limite.
+const randomPlayers = (count) => {
+  const n = Math.max(1, Math.min(Math.floor(count) || 0, MAX_TEST_PLAYERS));
+  const names = [...TEST_FIRST_NAMES];
+  for (let i = names.length - 1; i > 0; i--) {          // mélange de Fisher-Yates
+    const j = Math.floor(Math.random() * (i + 1));
+    [names[i], names[j]] = [names[j], names[i]];
+  }
+  // Un seul appel à Date.now() : dans la boucle, tous les joueurs partageraient le même id.
+  const base = Date.now();
+  return Array.from({ length: n }, (_, i) => {
+    const lap = Math.floor(i / names.length);
+    const first = names[i % names.length];
+    return {
+      id: base + i,
+      name: lap === 0 ? first : `${first} ${lap + 1}`,
+      ranking: Math.random() < 0.1 ? null : Math.round((500 + Math.random() * 1500) / 5) * 5,
+    };
+  });
+};
+
+Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, poolShortLabel, randomPlayers });
