@@ -105,10 +105,15 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   // Taille du bracket calculée dynamiquement selon le nombre de joueurs éligibles
   const bracketSize = nextPow2(eligibleList.length);
   const [seeds, setSeeds] = React.useState(() => {
-    const saved = localStorage.getItem('consolante-seeds');
-    const parsed = saved ? JSON.parse(saved) : null;
-    // Réinitialise si la taille ne correspond plus
-    if (parsed && parsed.length === bracketSize) return parsed;
+    try {
+      // Les placements des versions précédentes ont été construits avec un autre
+      // pattern de seeding : on les jette au lieu de les recharger.
+      window.CONSOLANTE_SEEDS_LEGACY_KEYS.forEach(k => localStorage.removeItem(k));
+      const saved = localStorage.getItem(window.CONSOLANTE_SEEDS_KEY);
+      const parsed = saved ? JSON.parse(saved) : null;
+      // Réinitialise si la taille ne correspond plus
+      if (parsed && parsed.length === bracketSize) return parsed;
+    } catch {}
     return Array(bracketSize).fill(null);
   });
   const [dragItem, setDragItem] = React.useState(null); // { player, fromSlot: null|number }
@@ -120,7 +125,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
 
 
   React.useEffect(() => {
-    localStorage.setItem('consolante-seeds', JSON.stringify(seeds));
+    try { localStorage.setItem(window.CONSOLANTE_SEEDS_KEY, JSON.stringify(seeds)); } catch {}
   }, [seeds]);
 
   // Resynchronise les seeds si la structure change en cours de session
@@ -185,33 +190,11 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     setSeeds(prev => { const next = [...prev]; next[idx] = null; return next; });
   };
 
-  // Tableau de placement officiel pour 16 joueurs (ordre des slots)
-  const SEEDING_PATTERN_16 = [1, 16, 13, 8, 5, 12, 9, 4, 3, 14, 11, 6, 7, 10, 15, 2];
-
-  // Génère un pattern de seeding standard pour n'importe quelle taille (puissance de 2)
-  // Construction récursive : à chaque étape, on intercale les seeds (size+1 - existant)
-  // pour que TS1 vs TSN, TS2 vs TSN-1, etc. à chaque tour.
-  const buildSeedingPattern = (size) => {
-    if (size === 16) return SEEDING_PATTERN_16;
-    let order = [1, 2];
-    let s = 2;
-    while (s < size) {
-      const ns = s * 2;
-      const next = [];
-      order.forEach(v => {
-        next.push(v);
-        next.push(ns + 1 - v);
-      });
-      order = next;
-      s = ns;
-    }
-    return order;
-  };
-
   const autoPlace = () => {
     const seedToEntry = {};
     eligibleList.forEach(e => { seedToEntry[e.seed] = e; });
-    const pattern = buildSeedingPattern(bracketSize);
+    // Même placement que le tableau principal (AppShell.buildSeedingPattern)
+    const pattern = window.buildSeedingPattern(bracketSize);
 
     // Place tous les joueurs selon le pattern (réécrit les slots).
     // Les seeds sans joueur correspondant deviennent des byes — ils tombent

@@ -20,10 +20,10 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=4"></script>
+<script type="text/babel" src="AppShell.jsx?v=6"></script>
 <script type="text/babel" src="PoolsScreen.jsx?v=5"></script>
 <script type="text/babel" src="BracketsScreen.jsx?v=6"></script>
-<script type="text/babel" src="ResultsScreen.jsx?v=5"></script>
+<script type="text/babel" src="ResultsScreen.jsx?v=6"></script>
 <script type="text/babel">
 // KnockoutScreen — Tableau dynamique (n poules)
 // Taille du bracket = prochaine puissance de 2 >= pools.length * 2
@@ -158,13 +158,9 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
   {
     const n = pools.length;
 
-    // Placement standard FFTT (numéro de seed à chaque position, 1-indexé)
-    const FFTT_32 = [1,32,17,16,9,24,25,8,5,28,21,12,13,20,29,4,3,30,19,14,11,22,27,6,7,26,23,10,15,18,31,2];
-    const FFTT_16 = [1,16,9,8,5,12,13,4,3,14,11,6,7,10,15,2];
-    const FFTT_8  = [1,8,5,4,3,6,7,2];
-    const FFTT_4  = [1,4,3,2];
-    const FFTT_2  = [1,2];
-    const ffttOrder = bracketSize === 2 ? FFTT_2 : bracketSize === 4 ? FFTT_4 : bracketSize === 8 ? FFTT_8 : bracketSize === 16 ? FFTT_16 : FFTT_32;
+    // Placement standard FFTT — source unique (AppShell.buildSeedingPattern),
+    // partagée avec la consolante pour garantir la même répartition.
+    const ffttOrder = window.buildSeedingPattern(bracketSize);
 
     // Seeds : 1..n = 1ers · n+1..n+kept = 2es retenus · suivant = vainqueurs barrage
     // Chaque barrage garde un slot de seed FIXE (pas de compactage) : un barrage
@@ -420,7 +416,7 @@ Object.assign(window, { KnockoutScreen });
 
 </script>
 <script type="text/babel" src="BarrageScreen.jsx?v=5"></script>
-<script type="text/babel" src="ConsolanteScreen.jsx?v=5"></script>
+<script type="text/babel" src="ConsolanteScreen.jsx?v=7"></script>
 
 <script type="text/babel">
 const DEFAULT_SCREEN = /*EDITMODE-BEGIN*/"consolante"/*EDITMODE-END*/;
@@ -499,6 +495,8 @@ const App = () => {
     setResults({});
     setBracketResults({});
     setBarrageResults({});
+    // Écrite hors de l'état d'App par ConsolanteScreen : à purger à la main
+    window.clearConsolanteSeeds();
   };
 
   // Données de test : repart d'un tournoi vierge avec `count` joueurs générés.
@@ -508,6 +506,7 @@ const App = () => {
     setResults({});
     setBracketResults({});
     setBarrageResults({});
+    window.clearConsolanteSeeds();
     setScreen('poules');
   };
 

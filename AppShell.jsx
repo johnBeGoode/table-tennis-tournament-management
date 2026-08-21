@@ -43,14 +43,14 @@ const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll, 
   const t = THEMES[theme];
   const [confirmReset, setConfirmReset] = React.useState(false);
   const [showSeed, setShowSeed] = React.useState(false);   // modale « joueurs de test »
-  const [seedCount, setSeedCount] = React.useState('24');
+  const [seedCount, setSeedCount] = React.useState('');
 
   const submitSeed = () => {
     const n = parseInt(seedCount, 10);
     if (!Number.isFinite(n) || n < 2) return;
     onSeedPlayers(Math.min(n, MAX_TEST_PLAYERS));
     setShowSeed(false);
-    setSeedCount('24');
+    setSeedCount('');
   };
 
   return (
@@ -174,7 +174,7 @@ const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll, 
               Remplace les joueurs, les poules et les résultats existants.
             </div>
             <input
-              type="number" min={2} max={MAX_TEST_PLAYERS} autoFocus
+              type="number" min={2} max={MAX_TEST_PLAYERS} autoFocus placeholder="Nb de joueurs"
               value={seedCount}
               onChange={e => setSeedCount(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') submitSeed(); }}
@@ -297,6 +297,47 @@ const computeBracketStructure = (autoQualifiers, thirdsCount) => {
   return { bracketSize: 2, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
 };
 
+// Placement manuel de la consolante (drag & drop). Contrairement au reste, cette
+// clé est écrite directement par ConsolanteScreen, pas par App : elle doit donc
+// être purgée explicitement partout où le tournoi repart de zéro.
+// Le suffixe de version est incrémenté dès que buildSeedingPattern change : un
+// placement construit avec l'ancien pattern doit être jeté, pas rechargé.
+const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v2';
+const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds'];
+
+const clearConsolanteSeeds = () => {
+  try {
+    [CONSOLANTE_SEEDS_KEY, ...CONSOLANTE_SEEDS_LEGACY_KEYS].forEach(k => localStorage.removeItem(k));
+  } catch {}
+};
+
+// Placement standard FFTT : numéro de tête de série à chaque position du tableau,
+// 1-indexé. Source unique pour le tableau principal (KnockoutScreen, index.html) et
+// la consolante (ConsolanteScreen) — les deux DOIVENT répartir de la même façon.
+// Invariant : dans chaque paire du 1er tour, la somme des seeds vaut size + 1
+// (TS1 vs TSN, TS2 vs TSN-1, …), et l'invariant se propage à chaque tour.
+const buildSeedingPattern = (size) => {
+  const FFTT = {
+    2:  [1,2],
+    4:  [1,4,3,2],
+    8:  [1,8,5,4,3,6,7,2],
+    16: [1,16,9,8,5,12,13,4,3,14,11,6,7,10,15,2],
+    32: [1,32,17,16,9,24,25,8,5,28,21,12,13,20,29,4,3,30,19,14,11,22,27,6,7,26,23,10,15,18,31,2],
+  };
+  if (FFTT[size]) return FFTT[size];
+  // Tailles hors tables (64+) : construction récursive, on intercale (taille+1 - seed)
+  let order = [1, 2];
+  let s = 2;
+  while (s < size) {
+    const ns = s * 2;
+    const next = [];
+    order.forEach(v => { next.push(v); next.push(ns + 1 - v); });
+    order = next;
+    s = ns;
+  }
+  return order;
+};
+
 // Étiquette courte d'une poule, dérivée de son VRAI nom (« Poule A » → « A »).
 // Remplace l'ancien étiquetage par index, qui divergeait après renommage/suppression.
 const poolShortLabel = (pool) => ((pool.name || '').replace(/^poule\s*/i, '').trim() || pool.name || '?');
@@ -336,4 +377,4 @@ const randomPlayers = (count) => {
   });
 };
 
-Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, poolShortLabel, randomPlayers });
+Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers });

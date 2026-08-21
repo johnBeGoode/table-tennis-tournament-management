@@ -16,7 +16,35 @@ Puis ouvrir http://localhost:4173. `.claude/launch.json` contient la même comma
 
 Ouvrir `index.html` en `file://` ne marche pas : les `<script src>` sont bloqués.
 
-Vérifier une modification = la piloter dans le navigateur (aucun test automatisé n'existe). L'app persiste tout dans `localStorage` ; `localStorage.clear()` puis rechargement remet à zéro.
+L'app persiste tout dans `localStorage` ; `localStorage.clear()` puis rechargement remet à zéro.
+
+## Vérifier une modification
+
+Aucun test automatisé n'existe : vérifier une modification, c'est la piloter dans le navigateur.
+
+### Monter un tournoi de test complet — 4 clics
+« Joueurs de test » **32** → Poules / « Répartition auto » (propose 8 poules de 4) → « Répartir » → Résultats / « Générer les scores ». On obtient un tableau principal de 16 **et** une consolante de 16 (8 troisièmes + 8 quatrièmes), sans barrage ni élimination de 2es.
+
+Le mode dépend du **nombre de poules**, pas du nombre de joueurs (`computeBracketStructure(2n, n)`). Le mode `barrage` est bien plus rare qu'il n'y paraît — sur 2 à 12 poules, **seul 7 le déclenche** :
+
+| Poules | Tableau | Mode | Remarque |
+|---|---|---|---|
+| 2, 4, 8 | 4, 8, 16 | `direct` | 2n est déjà une puissance de 2 |
+| 7 | 16 | `barrage` | 2 barrages — **le seul cas de barrage** entre 2 et 12 poules |
+| 3, 5, 6, 9, 10, 11, 12 | — | `eliminate` | 2 à 8 seconds renvoyés en consolante |
+
+Pour tester les barrages il faut donc **7 poules** (28 joueurs en poules de 4).
+
+**Attention** : « Joueurs de test » et « Réinitialiser » écrasent le `localStorage` du navigateur. Prévenir avant de lancer ça sur un navigateur qui peut contenir un vrai tournoi.
+
+### Vérifier sans navigateur
+Pas de tests, mais le pipeline de la page est reproductible en Node — utile pour attraper une erreur de syntaxe (qui ici ne casse pas un build, elle casse la page en silence) et pour exercer les utilitaires purs :
+
+```bash
+curl -sL -o /tmp/babel.js https://unpkg.com/@babel/standalone@7.29.0/babel.min.js   # même version que la page
+```
+
+Puis, dans un script Node : `Babel.transform(src, { presets: ['react'] })` sur chaque `.jsx` **et** sur les blocs `<script type="text/babel">` extraits d'`index.html`, puis `vm.runInContext(code, sandbox)` avec un sandbox minimal — `window: {}`, un `localStorage` sur `Map`, et `React` en `new Proxy({}, { get: () => () => {} })`. Le JSX ne s'exécute pas au chargement du module (il est dans des corps de fonctions), donc ce stub suffit pour peupler `window` et appeler les utilitaires partagés. Ce que ça ne couvre pas : rendu, effets, drag & drop.
 
 ## Contraintes structurantes
 
@@ -28,6 +56,11 @@ Chaque `.jsx` se termine par un `Object.assign(window, {...})` et les autres fic
 
 ### `Date.now()` comme générateur d'id
 Les ids de joueurs et de poules sont des timestamps. Il n'y a pas d'utilitaire d'id. Dans une boucle synchrone, `Date.now()` renvoie la même valeur pour tous : appeler `Date.now()` **une fois** puis faire `base + i` (cf. `randomPlayers` dans `AppShell.jsx`, et la répartition auto dans `PoolsScreen.jsx`). Des ids dupliqués cassent silencieusement `playerIds`, les clés de match et les `players.find(...)`.
+
+### Le placement consolante est figé dans `localStorage` — le piège n°3
+`ConsolanteScreen` ne place personne automatiquement : le bracket est celui qu'on a construit à la main (drag & drop) ou via le bouton « Auto », et il est rechargé tel quel depuis `consolante-seeds-v2` à chaque montage. **Changer `buildSeedingPattern` n'a donc aucun effet visible** tant qu'on n'a pas recliqué sur « Auto » : l'ancien placement survit et donne l'impression que la correction n'est pas passée. Le `useEffect` de resynchronisation ne remet à zéro que si la **taille** du bracket change, pas si le pattern change.
+
+D'où le suffixe de version dans la clé : **toute modification de `buildSeedingPattern` doit s'accompagner d'un incrément de `CONSOLANTE_SEEDS_KEY`** (`AppShell.jsx`), pour que les placements construits avec l'ancien pattern soient jetés au lieu d'être rechargés. Les anciennes clés se déclarent dans `CONSOLANTE_SEEDS_LEGACY_KEYS` et sont supprimées au montage suivant.
 
 ## Architecture
 
@@ -43,7 +76,7 @@ Tout l'état vit dans `App` (`index.html`, vers la ligne 438) en `React.useState
 | `ertt-barrage-results` | barrages |
 | `ertt-sets-to-win` | `2` ou `3` (défaut `3`) |
 | `ertt-screen` | écran actif |
-| `consolante-seeds` | placement manuel de la consolante — écrit **directement** par `ConsolanteScreen.jsx`, pas par `App` (et non purgé par « Réinitialiser ») |
+| `consolante-seeds-v2` | placement manuel de la consolante — écrit **directement** par `ConsolanteScreen.jsx`, pas par `App`. Le suffixe de version est incrémenté dès que `buildSeedingPattern` change, pour jeter les placements construits avec l'ancien pattern. Clé, clés héritées et purge : `CONSOLANTE_SEEDS_KEY` / `CONSOLANTE_SEEDS_LEGACY_KEYS` / `clearConsolanteSeeds()` dans `AppShell.jsx` |
 
 Il n'existe **pas d'entité Tournoi** : un seul tournoi implicite, dont le nom est codé en dur dans `index.html`.
 
@@ -58,6 +91,7 @@ Il n'existe **pas d'entité Tournoi** : un seul tournoi implicite, dont le nom e
 - `poolStandings(pool, players, results)` → `[{ id, name, v, d, sf, sa, pf, pa }]` triés. **Source unique** du classement de poule, utilisée par tous les écrans.
 - `crossPoolCompare(a, b)` → comparateur inter-poules, **Art. II.109 FFTT** : par quotients (points-rencontre / rencontres jouées, puis manches, puis points-jeu) et non par totaux bruts, pour rester juste entre poules de 3 et de 4.
 - `computeBracketStructure(autoQualifiers, thirdsCount)` → `{ bracketSize, mode: 'direct' | 'barrage' | 'eliminate', barrageCount, eliminateCount }`. Décide s'il faut des barrages ou éliminer des 2es.
+- `buildSeedingPattern(size)` → ordre des têtes de série dans le tableau (tables FFTT pour 2/4/8/16/32, construction récursive au-delà). **Source unique** du placement, partagée par le tableau principal et la consolante : les deux doivent répartir à l'identique. Invariant : dans chaque paire d'un tour, la somme des seeds vaut `taille + 1`.
 - `poolShortLabel(pool)` → `'Poule A'` → `'A'` (dérivé du vrai nom, pas de l'index).
 - `randomPlayers(count)` → joueurs de test (bouton « Joueurs de test » de la sidebar).
 
@@ -69,13 +103,13 @@ Il n'existe **pas d'entité Tournoi** : un seul tournoi implicite, dont le nom e
 3. **`BracketsScreen.jsx`** — classements, lecture seule.
 4. **`BarrageScreen.jsx`** — matchs de barrage entre 3es, id `barrage-{poolIdA}-{poolIdB}` (reconstruit à l'identique dans `index.html` et `ConsolanteScreen.jsx` : toute modification de cette règle doit être répercutée aux trois endroits).
 5. **`KnockoutScreen`** (défini **inline dans `index.html`**, pas dans un fichier à part) — tableau principal, ids `{prefix}-r{round}-{n}` et `{prefix}-3rd` avec `prefix = 'principal'`.
-6. **`ConsolanteScreen.jsx`** — même construction de tableau avec `prefix = 'consolante'`, plus un placement manuel par drag & drop (`buildSeedingPattern` pour le seeding).
+6. **`ConsolanteScreen.jsx`** — même construction de tableau avec `prefix = 'consolante'`, plus un placement manuel par drag & drop. Le bouton « Auto » applique `window.buildSeedingPattern` — le **même** placement que le tableau principal.
 
 La colonne finale du tableau principal et celle de la consolante partagent une même astuce de mise en page : un duplicata **invisible** du bloc « 3e place » au-dessus de la finale, pour que la finale reste centrée sur le point médian des demi-finales. Garder les deux écrans synchronisés.
 
 ### Nettoyages automatiques
 - Un `useEffect` de `App` purge les résultats de poule orphelins dès que la composition des poules change — ce qui libère aussi le verrou de format. Si des résultats disparaissent après une génération de données, c'est que les clés ou les ids sont incohérents.
-- `resetAll` (bouton « Réinitialiser ») vide joueurs, poules et résultats, mais **pas** `ertt-sets-to-win` ni `consolante-seeds`.
+- `resetAll` (bouton « Réinitialiser ») et `seedPlayers` (« Joueurs de test ») vident joueurs, poules et résultats, et purgent le placement consolante via `window.clearConsolanteSeeds()`. `ertt-sets-to-win` n'est **pas** réinitialisé.
 
 ## Points connus
 
@@ -83,3 +117,5 @@ La colonne finale du tableau principal et celle de la consolante partagent une m
 - `DEFAULT_SCREEN` (`index.html`) est entouré de marqueurs `/*EDITMODE-BEGIN*/…/*EDITMODE-END*/` manipulés par un outil externe ; sa valeur peut ne pas être `"poules"`.
 - Le style est entièrement en **objets inline**, alimentés par `THEMES` (`AppShell.jsx`). Un seul thème (`classique`) ; la bascule de thème a été retirée. Icônes Font Awesome 6.5, police Roboto, les deux via CDN.
 - Pas d'import/export de données : le seul transport, c'est `localStorage`.
+- Après un « Réinitialiser », la clé `consolante-seeds-v2` **réapparaît avec la valeur `[null]`** dès qu'on visite l'écran Consolante : le `useEffect` de persistance réécrit l'état vide (bracket de taille 1). Sans conséquence, mais ne pas y voir un échec de `clearConsolanteSeeds()` — regarder le contenu, pas l'existence de la clé.
+- Le placement du tableau principal et celui de la consolante doivent rester **identiques** ; l'invariant qui le prouve : dans chaque paire d'un tour, la somme des numéros de têtes de série vaut `taille + 1`. Sur un tableau de 16, le témoin le plus parlant est la paire **TS8–TS9** au 1er tour.

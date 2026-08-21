@@ -165,6 +165,9 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
     setSets(initialSets());
     setSetErrors(Array(MAX_SETS).fill(null));
     setTimeout(() => {
+      // Curseur directement dans le 1er set (score du joueur 1)
+      const first = inputRefs.current[0]?.[0];
+      if (first && !first.disabled) first.focus({ preventScroll: true });
       const el = scorePanelRef.current;
       if (!el) return;
       // Fait défiler le premier ancêtre scrollable (pas de scrollIntoView,
