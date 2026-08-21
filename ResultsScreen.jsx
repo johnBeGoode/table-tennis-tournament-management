@@ -89,6 +89,33 @@ const poolMatches = (pool, pools, players) => {
   return matches;
 };
 
+// --- Données de test ---------------------------------------------------------
+// Un set valide au sens de isSetValid : 11 contre 0-9, ou prolongation à +2.
+// `winnerIsP1` oriente le score sur (p1Id, p2Id), c.-à-d. (petit id, grand id).
+const randomSet = (winnerIsP1) => {
+  const deuce = Math.random() < 0.2;                        // 1 set sur 5 en prolongation
+  const loser = deuce ? 10 + Math.floor(Math.random() * 4) : Math.floor(Math.random() * 10);
+  const hi = deuce ? loser + 2 : 11;
+  return winnerIsP1 ? [hi, loser] : [loser, hi];
+};
+
+// Résultat complet d'un match : vainqueur tiré à pile ou face, puis un nombre de
+// sets cohérent avec le format (entre setsToWin et setsToWin * 2 - 1 manches).
+const randomResult = (setsToWin) => {
+  const p1Wins = Math.random() < 0.5;
+  const loserSets = Math.floor(Math.random() * setsToWin);  // 0 … setsToWin - 1
+  const order = [
+    ...Array(setsToWin - 1).fill(true),
+    ...Array(loserSets).fill(false),
+  ];
+  for (let i = order.length - 1; i > 0; i--) {              // mélange de Fisher-Yates
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  order.push(true);                                         // le dernier set revient au vainqueur
+  return { sets: order.map(wonByWinner => randomSet(wonByWinner === p1Wins)) };
+};
+
 const emptySet = () => ({ s1: '', s2: '', done: false });
 
 const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdateResults }) => {
@@ -207,6 +234,20 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
     setTab('pending');
   };
 
+  // Remplit d'un coup tous les matchs sans résultat — les scores déjà saisis
+  // ne sont pas touchés.
+  const generateAllResults = () => {
+    if (pending.length === 0) return;
+    onUpdateResults(prev => {
+      const next = { ...prev };
+      pending.forEach(m => { next[m.id] = randomResult(SETS_TO_WIN); });
+      return next;
+    });
+    setSelected(null);
+    setSets(initialSets());
+    setTab('done');
+  };
+
   const getRoundColor = (m) => POOL_COLORS[m.poolIdx % POOL_COLORS.length];
 
   if (pools.length === 0) {
@@ -244,6 +285,18 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
             </button>
           ))}
         </div>
+        <button onClick={generateAllResults} disabled={pending.length === 0}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '9px 16px', borderRadius: t.btnRadius, border: 'none',
+            background: pending.length === 0 ? t.tableBorder : t.primary,
+            color: pending.length === 0 ? t.textSecondary : t.primaryText,
+            fontWeight: 700, fontSize: 13,
+            cursor: pending.length === 0 ? 'default' : 'pointer',
+          }}>
+          <i className="fas fa-dice" style={{ fontSize: 14 }}></i>
+          Générer les scores
+        </button>
         </div>
 
         {/* À jouer */}
