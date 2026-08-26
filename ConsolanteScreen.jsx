@@ -39,25 +39,35 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   const sortedSecondsAsc = [...secondsAll].sort((a, b) => window.crossPoolCompare(b, a));
   const eliminatedSeconds = struct.mode === 'eliminate' ? sortedSecondsAsc.slice(0, struct.eliminateCount) : [];
 
+  // Index de la poule dans `pools` — c'est lui qui fait le numéro de TS à
+  // l'intérieur d'une catégorie (cf. « Calcul des têtes de série » plus bas).
+  const poolIndex = {};
+  pools.forEach((pool, i) => { poolIndex[pool.id] = i; });
+
   const barrageLosers = barrageEligible.reduce((acc, _, i) => {
     if (i % 2 !== 0) return acc;
     const a = barrageEligible[i], b = barrageEligible[i + 1];
     if (!a || !b) return acc;
     const matchId = `barrage-${a.poolId}-${b.poolId}`;
     const r = barrageResults[matchId];
-    if (r) acc.push({ player: r.winner === 1 ? r.p2 : r.p1, label: 'Perdant barrage' });
+    if (r) acc.push({ player: r.winner === 1 ? r.p2 : r.p1, poolId: r.winner === 1 ? b.poolId : a.poolId, label: 'Perdant barrage' });
     return acc;
-  }, []);
+  }, []).sort((x, y) => poolIndex[x.poolId] - poolIndex[y.poolId]);
 
   const fourths = pools.map((pool) => {
     const st = poolStandings(pool);
     const p = st[3] || null;
     if (!p) return null;
-    return { player: p, label: `4e (${window.poolShortLabel(pool)})` };
+    return { player: p, poolId: pool.id, label: `4e (${window.poolShortLabel(pool)})` };
   }).filter(Boolean);
 
-  const directConsolanteEntries = directConsolante.map(x => ({ player: x.player, label: `3e direct (${x.poolLabel})` }));
-  const eliminatedSecondsEntries = eliminatedSeconds.map(x => ({ player: x.player, label: `2e éliminé (${x.poolLabel})` }));
+  const directConsolanteEntries = directConsolante.map(x => ({ player: x.player, poolId: x.poolId, label: `3e direct (${x.poolLabel})` }));
+  // Le mérite décide QUELS 2es sont éliminés (quotients inter-poules), mais pas leur
+  // numéro de TS : comme dans le tableau principal, on repasse en ordre de poules.
+  const eliminatedPoolIds = new Set(eliminatedSeconds.map(x => x.poolId));
+  const eliminatedSecondsEntries = secondsAll
+    .filter(x => eliminatedPoolIds.has(x.poolId))
+    .map(x => ({ player: x.player, poolId: x.poolId, label: `2e éliminé (${x.poolLabel})` }));
 
   // Aucun match de poule joué → pas de joueurs éligibles
   const totalPoolMatchesPlayed = Object.keys(results || {}).filter(k => k.startsWith('pool-')).length;
@@ -70,15 +80,16 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   ];
 
   // ── Calcul des têtes de série ────────────────────────────────────────────
-  // Stats par joueur (toutes poules confondues) pour ordonner les TS
-  const playerStats = {};
-  pools.forEach(pool => {
-    poolStandings(pool).forEach(s => {
-      playerStats[s.id] = { v: s.v, d: s.d, sf: s.sf, sa: s.sa, pf: s.pf, pa: s.pa };
-    });
-  });
-
-  // Priorité de catégorie : perdants barrage > 3e direct > 4e
+  // Mêmes règles que le tableau principal (KnockoutScreen, index.html) : catégorie
+  // d'abord, puis ORDRE DES POULES — et non les quotients. Le 3e de la poule A est
+  // TS 1, le 3e de la poule B TS 2, …, puis les 4es dans ce même ordre.
+  // C'est ce qui garantit que deux joueurs d'une même poule ne se retrouvent pas
+  // au 1er tour : avec le pattern FFTT, la TS i affronte la TS (taille + 1 - i),
+  // donc le 3e de la poule i affronte le 4e d'une AUTRE poule.
+  // Trier par performance ici cassait cet appariement et donnait un tableau qui
+  // paraissait distribué au hasard.
+  //
+  // Priorité de catégorie : 2e éliminé > perdant barrage > 3e direct > 4e
   const categoryRank = (label) => {
     if (label?.startsWith('2e éliminé')) return 0;
     if (label?.startsWith('Perdant barrage')) return 1;
@@ -86,15 +97,11 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     return 3;
   };
 
+  // `eligibleListRaw` est déjà groupé par catégorie et, dans chaque catégorie, en
+  // ordre de poules : le tri (stable) ne fait que rendre la règle explicite.
   const seedOrder = [...eligibleListRaw]
     .map((e, i) => ({ ...e, _i: i }))
-    .sort((a, b) => {
-      const ca = categoryRank(a.label), cb = categoryRank(b.label);
-      if (ca !== cb) return ca - cb;
-      const sa = playerStats[a.player.id] || { v: 0, d: 0, sf: 0, sa: 0, pf: 0, pa: 0 };
-      const sb = playerStats[b.player.id] || { v: 0, d: 0, sf: 0, sa: 0, pf: 0, pa: 0 };
-      return window.crossPoolCompare(sa, sb) || a._i - b._i;
-    });
+    .sort((a, b) => (categoryRank(a.label) - categoryRank(b.label)) || (a._i - b._i));
 
   const seedMap = {};
   seedOrder.forEach((e, i) => { seedMap[e.player.id] = i + 1; });
@@ -475,7 +482,6 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
                   style={{ background: t.cardBg, border: `1.5px solid ${t.tableBorder}`, borderRadius: 8, padding: '8px 12px', cursor: 'grab', userSelect: 'none', display: 'flex', flexDirection: 'column', gap: 2, boxShadow: t.cardShadow }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <i className="fas fa-grip-vertical" style={{ color: t.textSecondary, fontSize: 10, opacity: 0.5 }}></i>
-                    <span style={{ background: `${accentColor}20`, color: accentColor, fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, minWidth: 20, textAlign: 'center' }}>TS{entry.seed}</span>
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.player.name}</span>
                   </span>
                   <span style={{ fontSize: 10, color: t.textSecondary, marginLeft: 18 }}>{entry.label}</span>

@@ -253,6 +253,10 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
 
   const getRoundColor = (m) => POOL_COLORS[m.poolIdx % POOL_COLORS.length];
 
+  // Largeur du bandeau de poule, partagée par les deux listes : c'est elle qui met
+  // les noms de joueurs à la même abscisse d'une carte à l'autre, et d'un onglet à l'autre.
+  const MATCH_TAG_WIDTH = 62;
+
   if (pools.length === 0) {
     return (
       <div style={{ padding: '60px', textAlign: 'center', color: t.textSecondary }}>
@@ -266,8 +270,10 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
   return (
     <div style={{ display: 'flex', gap: 24 }}>
 
-      {/* Liste des matchs */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      {/* Liste des matchs — largeur plafonnée : une carte de match tient en une ligne,
+          l'étirer sur tout l'écran creuse un vide entre les deux noms de joueurs.
+          Même plafond que le classement du tableau principal (BracketsScreen). */}
+      <div style={{ flex: 1, minWidth: 0, maxWidth: 540 }}>
 
         {/* Barre onglets + bouton aléatoire */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -304,7 +310,7 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
 
         {/* À jouer */}
         {tab === 'pending' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {pending.length === 0 && (
               <div style={{ padding: '32px', textAlign: 'center', color: t.textSecondary, background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}` }}>
                 <i className="fas fa-check-circle" style={{ fontSize: 28, color: '#20bf6b', marginBottom: 10, display: 'block' }}></i>
@@ -317,19 +323,20 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
               return (
                 <div key={m.id} onClick={() => handleSelect(m)} style={{
                   background: t.cardBg, borderRadius: t.cardRadius,
-                  border: isSel ? `2px solid ${t.primary}` : `1px solid ${t.tableBorder}`,
-                  boxShadow: isSel ? `0 0 0 3px ${t.primary}18` : t.cardShadow,
-                  padding: '12px 16px', cursor: 'pointer', transition: 'all .15s ease',
+                  // Bordure toujours à 1px : un 2px sur la carte sélectionnée décalait
+                  // toute la liste d'un pixel à chaque sélection. L'anneau porte l'état.
+                  border: `1px solid ${isSel ? t.primary : t.tableBorder}`,
+                  boxShadow: isSel ? `0 0 0 2px ${t.primary}22` : t.cardShadow,
+                  padding: '8px 12px', cursor: 'pointer', transition: 'all .15s ease',
+                  display: 'flex', alignItems: 'center', gap: 10,
                 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: t.tagRadius, background: rc.bg, color: rc.color }}>{m.round}</span>
-                    {isSel && <span style={{ fontSize: 11, color: t.primary, fontWeight: 700 }}><i className="fas fa-pen" style={{ marginRight: 4 }}></i>En cours</span>}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: t.textPrimary }}>{m.p1}</span>
-                    <span style={{ fontSize: 11, background: t.pageBg, border: `1px solid ${t.tableBorder}`, padding: '2px 8px', borderRadius: 6, fontWeight: 700, color: t.textSecondary }}>VS</span>
-                    <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: t.textPrimary, textAlign: 'right' }}>{m.p2}</span>
-                  </div>
+                  <span style={{ minWidth: MATCH_TAG_WIDTH, textAlign: 'center', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: t.tagRadius, background: rc.bg, color: rc.color, whiteSpace: 'nowrap' }}>{m.round}</span>
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: t.textPrimary }}>{m.p1}</span>
+                  <span style={{ fontSize: 10, background: t.pageBg, border: `1px solid ${t.tableBorder}`, padding: '1px 6px', borderRadius: 5, fontWeight: 700, color: t.textSecondary }}>VS</span>
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: t.textPrimary, textAlign: 'right' }}>{m.p2}</span>
+                  <span style={{ width: 12, textAlign: 'right', flexShrink: 0 }}>
+                    {isSel && <i className="fas fa-pen" title="Saisie en cours" style={{ fontSize: 11, color: t.primary }}></i>}
+                  </span>
                 </div>
               );
             })}
@@ -351,24 +358,23 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
               const [w1, w2] = countSetsWonArr(r?.sets);
               const p1won = w1 > w2;
               return (
-                <div key={m.id} style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, padding: '10px 16px' }}>
-                  <div style={{ marginBottom: 4 }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: t.tagRadius, background: rc.bg, color: rc.color }}>{m.round}</span>
-                  </div>
+                <div key={m.id} style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, padding: '8px 12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ minWidth: MATCH_TAG_WIDTH, textAlign: 'center', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: t.tagRadius, background: rc.bg, color: rc.color, whiteSpace: 'nowrap' }}>{m.round}</span>
                     <span style={{ flex: 1, fontSize: 13, fontWeight: p1won ? 700 : 500, color: p1won ? t.textPrimary : t.textSecondary }}>{m.p1}</span>
                     <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                      <span style={{ fontSize: 18, fontWeight: 900, color: p1won ? t.primary : t.textSecondary }}>{w1}</span>
-                      <span style={{ fontSize: 12, color: t.textSecondary }}>–</span>
-                      <span style={{ fontSize: 18, fontWeight: 900, color: !p1won ? t.primary : t.textSecondary }}>{w2}</span>
+                      <span style={{ fontSize: 15, fontWeight: 900, color: p1won ? t.primary : t.textSecondary }}>{w1}</span>
+                      <span style={{ fontSize: 11, color: t.textSecondary }}>–</span>
+                      <span style={{ fontSize: 15, fontWeight: 900, color: !p1won ? t.primary : t.textSecondary }}>{w2}</span>
                     </div>
                     <span style={{ flex: 1, fontSize: 13, fontWeight: !p1won ? 700 : 500, color: !p1won ? t.textPrimary : t.textSecondary, textAlign: 'right' }}>{m.p2}</span>
                   </div>
-                  <div style={{ display: 'flex', gap: 4, marginTop: 5, flexWrap: 'wrap' }}>
+                  {/* Détail des sets aligné sur les noms, pas sur le bord de la carte */}
+                  <div style={{ display: 'flex', gap: 4, marginTop: 4, marginLeft: MATCH_TAG_WIDTH + 10, flexWrap: 'wrap' }}>
                     {(r?.sets || []).map(([s1, s2], i) => {
                       const sw = s1 > s2;
                       return (
-                        <span key={i} style={{ fontSize: 11, padding: '1px 7px', borderRadius: 5, background: t.pageBg, border: `1px solid ${t.tableBorder}`, color: t.textSecondary }}>
+                        <span key={i} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 5, background: t.pageBg, border: `1px solid ${t.tableBorder}`, color: t.textSecondary }}>
                           <span style={{ color: sw ? t.primary : t.textSecondary, fontWeight: 700 }}>{s1}</span>
                           <span style={{ margin: '0 2px' }}>–</span>
                           <span style={{ color: !sw ? t.primary : t.textSecondary, fontWeight: 700 }}>{s2}</span>

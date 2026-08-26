@@ -47,6 +47,19 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
     ...s, setsFor: s.sf, setsAgainst: s.sa, ptsFor: s.pf, ptsAgainst: s.pa,
   }));
 
+  // Égalités que les 3 quotients FFTT ne départagent pas (crossPoolCompare === 0).
+  // Le règlement prévoit alors un tirage au sort : l'ordre affiché est arbitraire, on le signale.
+  // Les joueurs sans match joué sont ignorés, sinon une poule vierge serait entièrement « ex æquo ».
+  const markTies = (standings) => {
+    const tied = standings.map(() => false);
+    for (let i = 0; i < standings.length - 1; i++) {
+      const a = standings[i], b = standings[i + 1];
+      if (a.v + a.d === 0 || b.v + b.d === 0) continue;
+      if (window.crossPoolCompare(a, b) === 0) { tied[i] = true; tied[i + 1] = true; }
+    }
+    return tied;
+  };
+
   const totalMatches = (pool) => {
     const n = pool.playerIds.length;
     return n * (n - 1) / 2;
@@ -63,23 +76,38 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
     return count;
   };
 
+  // Les deux classements n'apparaissent qu'une fois toutes les poules terminées :
+  // un classement partiel se réordonne à chaque score saisi et n'engage à rien.
+  const poolMatchesTotal  = pools.reduce((acc, pool) => acc + totalMatches(pool), 0);
+  const poolMatchesPlayed = pools.reduce((acc, pool) => acc + playedMatches(pool), 0);
+
+  if (poolMatchesPlayed < poolMatchesTotal) {
+    return (
+      <div>
+        {renderTabs()}
+        <div style={{ padding: '64px 24px', textAlign: 'center', background: t.cardBg, border: `1.5px dashed ${t.tableBorder}`, borderRadius: t.cardRadius, color: t.textSecondary }}>
+          <div style={{ width: 64, height: 64, margin: '0 auto 18px', borderRadius: '50%', background: `${t.primary}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <i className="fas fa-hourglass-half" style={{ fontSize: 26, color: t.primary }}></i>
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>
+            Classements pas encore disponibles
+          </div>
+          <div style={{ fontSize: 13, maxWidth: 380, margin: '0 auto 20px', lineHeight: 1.5 }}>
+            Termine tous les matchs de poules : les classements ne sont figés qu'une fois la dernière rencontre saisie.
+          </div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 16, padding: '12px 20px', borderRadius: 10, background: t.tableHeaderBg, fontSize: 12 }}>
+            <span><i className="fas fa-table-tennis-paddle-ball" style={{ marginRight: 6, opacity: .5 }}></i><strong style={{ color: t.textPrimary }}>{poolMatchesPlayed}</strong> / {poolMatchesTotal} matchs joués</span>
+            <span style={{ width: 1, height: 14, background: t.tableBorder }}></span>
+            <span><i className="fas fa-layer-group" style={{ marginRight: 6, opacity: .5 }}></i><strong style={{ color: t.textPrimary }}>{pools.length}</strong> poule{pools.length > 1 ? 's' : ''}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (subTab === 'principal') {
     const totalPlayers = pools.reduce((acc, p) => acc + p.playerIds.length, 0);
     const n = pools.length;
-
-    const totalPoolMatchesPlayed = Object.keys(results || {}).filter(k => k.startsWith('pool-')).length;
-    if (totalPoolMatchesPlayed === 0) {
-      return (
-        <div>
-          {renderTabs()}
-          <div style={{ padding: '60px', textAlign: 'center', color: t.textSecondary, background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}` }}>
-            <i className="fas fa-trophy" style={{ fontSize: 32, display: 'block', marginBottom: 12, opacity: .3 }}></i>
-            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: t.textPrimary }}>En attente des résultats de poule</div>
-            <div style={{ fontSize: 13 }}>Le classement des qualifiés sera généré dès que les matchs de poule auront commencé.</div>
-          </div>
-        </div>
-      );
-    }
 
     // Stats par joueur — bâties sur le classement partagé (AppShell.poolStandings)
     const buildStats = () => {
@@ -105,17 +133,11 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
     const toQuotientShape = (s) => ({ v: s.v, d: s.d, sf: s.setsFor, sa: s.setsAgainst, pf: s.ptsFor, pa: s.ptsAgainst });
     const sortByPerf = (arr) => [...arr].sort((a, b) => window.crossPoolCompare(toQuotientShape(a), toQuotientShape(b)));
 
-    // Affichage des quotients — mêmes calculs que crossPoolCompare, pour que le
-    // tableau montre les critères réellement utilisés (et non des différences,
-    // qui n'ont jamais départagé quoi que ce soit).
-    const fmtQuot = (num, den, decimals) => {
-      if (den > 0) return (num / den).toFixed(decimals);
-      return num > 0 ? '∞' : '—';
-    };
-
-    // Groupes : 1ers, 2es de poule
-    const firsts  = sortByPerf(allStats.filter(s => s.poolRank === 1));
-    const seconds = sortByPerf(allStats.filter(s => s.poolRank === 2));
+    // Têtes de série : ordre des poules, pas les quotients. 1er de la poule A = TS 1,
+    // 1er de la poule B = TS 2, etc., puis les 2es dans ce même ordre de poules.
+    // `allStats` est bâti en parcourant `pools`, il est donc déjà dans cet ordre.
+    const firsts  = allStats.filter(s => s.poolRank === 1);
+    const seconds = allStats.filter(s => s.poolRank === 2);
 
     // Logique partagée (AppShell.computeBracketStructure)
     const autoQualifiers = n * 2;
@@ -127,11 +149,14 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
 
     const struct = window.computeBracketStructure(autoQualifiers, thirdPlayers.length);
 
-    // Mode 'eliminate' : retirer les `eliminateCount` moins bons 2es du tableau principal
+    // Mode 'eliminate' : retirer les `eliminateCount` moins bons 2es du tableau principal.
+    // Savoir *lesquels* sortent est une question de mérite → quotients inter-poules ;
+    // les retenus reprennent ensuite l'ordre des poules pour le placement.
     let keptSeconds = seconds;
     if (struct.mode === 'eliminate') {
       const cut = struct.eliminateCount;
-      keptSeconds = seconds.slice(0, Math.max(0, seconds.length - cut));
+      const out = new Set(sortByPerf(seconds).slice(Math.max(0, seconds.length - cut)).map(s => s.id));
+      keptSeconds = seconds.filter(s => !out.has(s.id));
     }
 
     const sortedThird = [...thirdPlayers].sort((a, b) => window.crossPoolCompare(toQuotientShape(a.player), toQuotientShape(b.player)));
@@ -156,11 +181,10 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
     // Construction du classement final par groupes
     // 1..n : 1ers   |   n+1..2n : 2es   |   2n+1..QUALIFIED : vainqueurs barrage
     const ranked = [
-      ...firsts.map(s  => ({ ...s, group: '1er',     groupColor: '#20bf6b' })),
-      ...keptSeconds.map(s => ({ ...s, group: '2e',      groupColor: '#0e92f0' })),
+      ...firsts,
+      ...keptSeconds,
       ...barrageWinners.map(s => s
-        ? { ...s, group: 'Barrage', groupColor: '#fb8c04' }
-        : { id: `pending-${Math.random()}`, name: 'Vainqueur barrage à venir', poolName: '—', poolColor: t.textSecondary, poolRank: 3, v: 0, d: 0, setsFor: 0, setsAgainst: 0, ptsFor: 0, ptsAgainst: 0, group: 'Barrage', groupColor: '#fb8c04', pending: true }
+        || { id: `pending-${Math.random()}`, name: 'Vainqueur barrage à venir', poolName: '—', poolColor: t.textSecondary, poolRank: 3, v: 0, d: 0, setsFor: 0, setsAgainst: 0, ptsFor: 0, ptsAgainst: 0, pending: true }
       ),
     ];
 
@@ -193,27 +217,21 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
           </div>
         </div>
 
-        {/* Tableau classement */}
-        <div style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, overflow: 'hidden' }}>
+        {/* Tableau classement — largeur plafonnée : avec 5 colonnes, un tableau
+            pleine largeur diluerait les colonnes en colonnes de vide. */}
+        <div style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, overflowX: 'auto', maxWidth: 540 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: t.tableHeaderBg }}>
                 {[
-                  { l: 'Rang', a: 'left' },
-                  { l: 'Joueur', a: 'left' },
-                  { l: 'Groupe', a: 'left' },
-                  { l: 'Poule', a: 'left' },
-                  { l: 'V', a: 'center' },
-                  { l: 'D', a: 'center' },
-                  { l: 'Q. rencontre', a: 'center', crit: '1', title: 'Critère 1 — points-rencontre (2 par victoire, 1 par défaite jouée) ÷ rencontres jouées' },
-                  { l: 'Sets +/−', a: 'center' },
-                  { l: 'Q. manches', a: 'center', crit: '2', title: 'Critère 2 — manches gagnées ÷ manches perdues' },
-                  { l: 'Pts +/−', a: 'center' },
-                  { l: 'Q. points', a: 'center', crit: '3', title: 'Critère 3 — points-jeu gagnés ÷ points-jeu perdus' },
+                  { l: 'Rang',   a: 'left',   w: 64 },
+                  { l: 'Joueur', a: 'left'          },
+                  { l: 'Poule',  a: 'left',   w: 116 },
+                  { l: 'V',      a: 'center', w: 48 },
+                  { l: 'D',      a: 'center', w: 48 },
                 ].map((h, i) => (
-                  <th key={i} title={h.title} style={{ padding: '10px 14px', textAlign: h.a, fontSize: 11, fontWeight: 700, color: h.crit ? t.textPrimary : t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: `1px solid ${t.tableBorder}`, whiteSpace: 'nowrap' }}>
+                  <th key={i} style={{ width: h.w, padding: '9px 12px', textAlign: h.a, fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: `1px solid ${t.tableBorder}`, whiteSpace: 'nowrap' }}>
                     {h.l}
-                    {h.crit && <sup style={{ fontSize: 9, fontWeight: 800, color: t.primary, marginLeft: 3 }}>{h.crit}</sup>}
                   </th>
                 ))}
               </tr>
@@ -222,51 +240,25 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
               {ranked.slice(0, QUALIFIED).map((s, idx) => {
                 const rank = idx + 1;
                 const qualified = hasResults;
-                const playedMatches = s.v + s.d;
-                const qRenc  = fmtQuot(2 * s.v + s.d, playedMatches, 2);
-                const qSets  = fmtQuot(s.setsFor, s.setsAgainst, 3);
-                const qPts   = fmtQuot(s.ptsFor, s.ptsAgainst, 3);
-                // Couleur des départages : seuil à 1 (autant gagné que perdu)
-                const quotColor = (str) => {
-                  const n = parseFloat(str);
-                  if (str === '∞') return '#20bf6b';
-                  if (isNaN(n)) return t.textSecondary;
-                  return n > 1 ? '#20bf6b' : n < 1 ? '#f96b6b' : t.textSecondary;
-                };
-
-                // Médaille pour top 3
-                let medal = null;
-                if (qualified && rank === 1) medal = '#FFD700';
-                else if (qualified && rank === 2) medal = '#C0C0C0';
-                else if (qualified && rank === 3) medal = '#CD7F32';
 
                 return (
                     <tr key={s.id} style={{
                       borderBottom: idx < Math.min(ranked.length, QUALIFIED) - 1 ? `1px solid ${t.tableBorder}` : 'none',
                       background: qualified ? `${t.primary}06` : 'transparent',
                     }}>
-                      <td style={{ padding: '10px 14px' }}>
+                      <td style={{ padding: '9px 12px' }}>
                         <span style={{
-                          width: 28, height: 28, borderRadius: '50%',
+                          width: 26, height: 26, borderRadius: '50%',
                           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: 12, fontWeight: 800,
-                          background: medal || (qualified ? t.primary : t.pageBg),
-                          color: medal ? '#000' : (qualified ? '#fff' : t.textSecondary),
+                          background: qualified ? t.primary : t.pageBg,
+                          color: qualified ? '#fff' : t.textSecondary,
                         }}>{rank}</span>
                       </td>
-                      <td style={{ padding: '10px 14px', fontSize: 14, fontWeight: 600, color: t.textPrimary, whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '9px 12px', fontSize: 14, fontWeight: 600, color: t.textPrimary, whiteSpace: 'nowrap' }}>
                         {s.name}
                       </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span style={{
-                          background: `${s.groupColor}1a`, color: s.groupColor,
-                          borderRadius: t.tagRadius, padding: '2px 9px',
-                          fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
-                        }}>
-                          {s.group}
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>
+                      <td style={{ padding: '9px 12px' }}>
                         <span style={{
                           background: `${s.poolColor}1a`, color: s.poolColor,
                           borderRadius: t.tagRadius, padding: '2px 9px',
@@ -275,29 +267,14 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
                           {s.poolName} · {s.poolRank}<sup style={{ fontSize: 8 }}>{s.poolRank === 1 ? 'er' : 'e'}</sup>
                         </span>
                       </td>
-                      <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 14, fontWeight: 800, color: '#20bf6b' }}>{s.v}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 14, color: '#f96b6b', fontWeight: 600 }}>{s.d}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 14, fontWeight: 800, color: t.textPrimary, whiteSpace: 'nowrap' }}>
-                        {qRenc}
-                      </td>
-                      <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 13, color: t.textSecondary, fontWeight: 500, whiteSpace: 'nowrap' }}>
-                        {s.setsFor}–{s.setsAgainst}
-                      </td>
-                      <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 14, fontWeight: 800, color: quotColor(qSets), whiteSpace: 'nowrap' }}>
-                        {qSets}
-                      </td>
-                      <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 13, color: t.textSecondary, fontWeight: 500, whiteSpace: 'nowrap' }}>
-                        {s.ptsFor}–{s.ptsAgainst}
-                      </td>
-                      <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 14, fontWeight: 800, color: quotColor(qPts), whiteSpace: 'nowrap' }}>
-                        {qPts}
-                      </td>
+                      <td style={{ padding: '9px 12px', textAlign: 'center', fontSize: 14, fontWeight: 800, color: '#20bf6b' }}>{s.v}</td>
+                      <td style={{ padding: '9px 12px', textAlign: 'center', fontSize: 14, color: '#f96b6b', fontWeight: 600 }}>{s.d}</td>
                     </tr>
                 );
               })}
               {!hasResults && (
                 <tr>
-                  <td colSpan={11} style={{ padding: '40px 20px', textAlign: 'center', color: t.textSecondary, fontSize: 13 }}>
+                  <td colSpan={5} style={{ padding: '40px 20px', textAlign: 'center', color: t.textSecondary, fontSize: 13 }}>
                     <i className="fas fa-table-tennis-paddle-ball" style={{ fontSize: 28, display: 'block', marginBottom: 10, opacity: .3 }}></i>
                     Aucun match joué — saisissez des résultats pour voir le classement
                   </td>
@@ -315,9 +292,11 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
       {renderTabs()}
       {/* Grille : colonnes de largeur égale. Un flex-wrap étirerait la carte
           seule sur sa ligne (ex. la 4e poule) sur toute la largeur. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 20, alignItems: 'start' }}>
       {pools.map((pool, poolIdx) => {
         const standings = poolStandings(pool);
+        const tied = markTies(standings);
+        const hasTie = tied.some(Boolean);
         const played = playedMatches(pool);
         const total = totalMatches(pool);
         const accentColor = POOL_COLORS[poolIdx % POOL_COLORS.length];
@@ -339,7 +318,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['Rang', 'Joueur', 'V', 'D', 'Sets'].map((h, i) => (
+                  {['Rang', 'Joueur', 'V', 'D', 'Sets', 'Pts'].map((h, i) => (
                     <th key={i} style={{ padding: '9px 16px', textAlign: i > 1 ? 'center' : 'left', fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: `1px solid ${t.tableBorder}` }}>{h}</th>
                   ))}
                 </tr>
@@ -350,19 +329,37 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
                     <td style={{ padding: '11px 16px' }}>
                       <span style={{ width: 26, height: 26, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, background: idx === 0 && played > 0 ? accentColor : t.pageBg, color: idx === 0 && played > 0 ? '#fff' : t.textSecondary }}>{idx + 1}</span>
                     </td>
-                    <td style={{ padding: '11px 16px', fontSize: 14, fontWeight: 600, color: t.textPrimary }}>{s.name}</td>
+                    <td style={{ padding: '11px 16px', fontSize: 14, fontWeight: 600, color: t.textPrimary }}>
+                      {s.name}
+                      {tied[idx] && (
+                        <span title="Égalité sur les 3 critères (quotients rencontres, manches, points) — départage par tirage au sort"
+                          style={{ marginLeft: 8, background: '#fb8c041a', color: '#fb8c04', borderRadius: t.tagRadius, padding: '2px 7px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                          <i className="fas fa-equals" style={{ marginRight: 4, fontSize: 9 }}></i>ex æquo
+                        </span>
+                      )}
+                    </td>
                     <td style={{ padding: '11px 16px', textAlign: 'center', fontSize: 14, fontWeight: 700, color: '#20bf6b' }}>{s.v}</td>
                     <td style={{ padding: '11px 16px', textAlign: 'center', fontSize: 14, color: '#f96b6b' }}>{s.d}</td>
-                    <td style={{ padding: '11px 16px', textAlign: 'center', fontSize: 13, color: t.textSecondary, fontWeight: 500 }}>
+                    <td style={{ padding: '11px 16px', textAlign: 'center', fontSize: 13, color: t.textSecondary, fontWeight: 500, whiteSpace: 'nowrap' }}>
                       {s.setsFor}–{s.setsAgainst}
+                    </td>
+                    <td style={{ padding: '11px 16px', textAlign: 'center', fontSize: 13, color: t.textSecondary, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                      {s.ptsFor}–{s.ptsAgainst}
                     </td>
                   </tr>
                 ))}
                 {standings.length === 0 && (
-                  <tr><td colSpan={5} style={{ padding: '20px', textAlign: 'center', color: t.textSecondary, fontSize: 13 }}>Aucun joueur dans cette poule</td></tr>
+                  <tr><td colSpan={6} style={{ padding: '20px', textAlign: 'center', color: t.textSecondary, fontSize: 13 }}>Aucun joueur dans cette poule</td></tr>
                 )}
               </tbody>
             </table>
+
+            {hasTie && (
+              <div style={{ padding: '9px 16px', borderTop: `1px solid ${t.tableBorder}`, background: t.tableHeaderBg, fontSize: 11, color: t.textSecondary, display: 'flex', alignItems: 'center', gap: 7, lineHeight: 1.4 }}>
+                <i className="fas fa-triangle-exclamation" style={{ color: '#fb8c04' }}></i>
+                Égalité non départagée par les 3 quotients — tirage au sort requis
+              </div>
+            )}
           </div>
         );
       })}

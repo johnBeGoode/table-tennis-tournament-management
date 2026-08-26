@@ -282,13 +282,18 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
               disabled={players.length < 2}
               title={players.length < 2 ? 'Ajoutez au moins 2 joueurs' : 'Répartir les joueurs par la méthode du serpent'}
               style={{
-                background: 'transparent', color: t.primary,
-                border: `1.5px solid ${t.primary}`, borderRadius: 8,
+                // Noir et or : le seul bouton « magique » de l'app, volontairement
+                // à l'écart de la palette verte des actions ordinaires.
+                // La bordure transparente conserve la géométrie de l'ancien bouton bordé.
+                background: '#000',
+                color: '#d4af37',
+                border: '1.5px solid transparent', borderRadius: 8,
                 padding: '6px 14px', fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap',
+                boxShadow: players.length < 2 ? 'none' : '0 2px 8px rgba(0,0,0,.28)',
                 cursor: players.length < 2 ? 'not-allowed' : 'pointer',
                 opacity: players.length < 2 ? 0.4 : 1,
               }}>
-              <i className="fas fa-wand-magic-sparkles" style={{ marginRight: 6 }}></i>Répartition auto
+              <i className="fas fa-wand-magic-sparkles" style={{ marginRight: 6, color: '#d4af37' }}></i>Répartition auto
             </button>
             <input
               placeholder={nextAutoPoolName}

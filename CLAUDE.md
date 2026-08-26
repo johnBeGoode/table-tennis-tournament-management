@@ -58,9 +58,9 @@ Chaque `.jsx` se termine par un `Object.assign(window, {...})` et les autres fic
 Les ids de joueurs et de poules sont des timestamps. Il n'y a pas d'utilitaire d'id. Dans une boucle synchrone, `Date.now()` renvoie la même valeur pour tous : appeler `Date.now()` **une fois** puis faire `base + i` (cf. `randomPlayers` dans `AppShell.jsx`, et la répartition auto dans `PoolsScreen.jsx`). Des ids dupliqués cassent silencieusement `playerIds`, les clés de match et les `players.find(...)`.
 
 ### Le placement consolante est figé dans `localStorage` — le piège n°3
-`ConsolanteScreen` ne place personne automatiquement : le bracket est celui qu'on a construit à la main (drag & drop) ou via le bouton « Auto », et il est rechargé tel quel depuis `consolante-seeds-v2` à chaque montage. **Changer `buildSeedingPattern` n'a donc aucun effet visible** tant qu'on n'a pas recliqué sur « Auto » : l'ancien placement survit et donne l'impression que la correction n'est pas passée. Le `useEffect` de resynchronisation ne remet à zéro que si la **taille** du bracket change, pas si le pattern change.
+`ConsolanteScreen` ne place personne automatiquement : le bracket est celui qu'on a construit à la main (drag & drop) ou via le bouton « Auto », et il est rechargé tel quel depuis `consolante-seeds-v3` à chaque montage. **Changer `buildSeedingPattern` ou la numérotation des TS n'a donc aucun effet visible** tant qu'on n'a pas recliqué sur « Auto » : l'ancien placement survit et donne l'impression que la correction n'est pas passée. Le `useEffect` de resynchronisation ne remet à zéro que si la **taille** du bracket change, pas si le pattern change.
 
-D'où le suffixe de version dans la clé : **toute modification de `buildSeedingPattern` doit s'accompagner d'un incrément de `CONSOLANTE_SEEDS_KEY`** (`AppShell.jsx`), pour que les placements construits avec l'ancien pattern soient jetés au lieu d'être rechargés. Les anciennes clés se déclarent dans `CONSOLANTE_SEEDS_LEGACY_KEYS` et sont supprimées au montage suivant.
+D'où le suffixe de version dans la clé : **toute modification du placement (`buildSeedingPattern` ou l'attribution des numéros de TS) doit s'accompagner d'un incrément de `CONSOLANTE_SEEDS_KEY`** (`AppShell.jsx`), pour que les placements construits avec l'ancien pattern soient jetés au lieu d'être rechargés. Les anciennes clés se déclarent dans `CONSOLANTE_SEEDS_LEGACY_KEYS` et sont supprimées au montage suivant.
 
 ## Architecture
 
@@ -76,7 +76,7 @@ Tout l'état vit dans `App` (`index.html`, vers la ligne 438) en `React.useState
 | `ertt-barrage-results` | barrages |
 | `ertt-sets-to-win` | `2` ou `3` (défaut `3`) |
 | `ertt-screen` | écran actif |
-| `consolante-seeds-v2` | placement manuel de la consolante — écrit **directement** par `ConsolanteScreen.jsx`, pas par `App`. Le suffixe de version est incrémenté dès que `buildSeedingPattern` change, pour jeter les placements construits avec l'ancien pattern. Clé, clés héritées et purge : `CONSOLANTE_SEEDS_KEY` / `CONSOLANTE_SEEDS_LEGACY_KEYS` / `clearConsolanteSeeds()` dans `AppShell.jsx` |
+| `consolante-seeds-v3` | placement manuel de la consolante — écrit **directement** par `ConsolanteScreen.jsx`, pas par `App`. Le suffixe de version est incrémenté dès que le placement change — `buildSeedingPattern` **ou** la numérotation des têtes de série de `ConsolanteScreen` — pour jeter les placements construits avec l'ancienne règle. Clé, clés héritées et purge : `CONSOLANTE_SEEDS_KEY` / `CONSOLANTE_SEEDS_LEGACY_KEYS` / `clearConsolanteSeeds()` dans `AppShell.jsx` |
 
 Il n'existe **pas d'entité Tournoi** : un seul tournoi implicite, dont le nom est codé en dur dans `index.html`.
 
@@ -117,5 +117,5 @@ La colonne finale du tableau principal et celle de la consolante partagent une m
 - `DEFAULT_SCREEN` (`index.html`) est entouré de marqueurs `/*EDITMODE-BEGIN*/…/*EDITMODE-END*/` manipulés par un outil externe ; sa valeur peut ne pas être `"poules"`.
 - Le style est entièrement en **objets inline**, alimentés par `THEMES` (`AppShell.jsx`). Un seul thème (`classique`) ; la bascule de thème a été retirée. Icônes Font Awesome 6.5, police Roboto, les deux via CDN.
 - Pas d'import/export de données : le seul transport, c'est `localStorage`.
-- Après un « Réinitialiser », la clé `consolante-seeds-v2` **réapparaît avec la valeur `[null]`** dès qu'on visite l'écran Consolante : le `useEffect` de persistance réécrit l'état vide (bracket de taille 1). Sans conséquence, mais ne pas y voir un échec de `clearConsolanteSeeds()` — regarder le contenu, pas l'existence de la clé.
+- Après un « Réinitialiser », la clé `consolante-seeds-v3` **réapparaît avec la valeur `[null]`** dès qu'on visite l'écran Consolante : le `useEffect` de persistance réécrit l'état vide (bracket de taille 1). Sans conséquence, mais ne pas y voir un échec de `clearConsolanteSeeds()` — regarder le contenu, pas l'existence de la clé.
 - Le placement du tableau principal et celui de la consolante doivent rester **identiques** ; l'invariant qui le prouve : dans chaque paire d'un tour, la somme des numéros de têtes de série vaut `taille + 1`. Sur un tableau de 16, le témoin le plus parlant est la paire **TS8–TS9** au 1er tour.

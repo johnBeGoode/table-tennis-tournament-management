@@ -256,7 +256,10 @@ const poolStandings = (pool, players, results) => {
       si.sf += w1; si.sa += w2; sj.sf += w2; sj.sa += w1;
     }
   }
-  return stats.sort((a, b) => b.v - a.v || (b.sf - b.sa) - (a.sf - a.sa) || (b.pf - b.pa) - (a.pf - a.pa));
+  // Départage à égalité : les mêmes quotients que l'inter-poules (Art. II.109 FFTT),
+  // et non des différences brutes — un joueur qui perd 3-0 puis gagne 3-2 et un joueur
+  // qui perd 3-2 puis gagne 3-0 ont la même différence de manches mais pas le même quotient.
+  return stats.sort(crossPoolCompare);
 };
 
 // Comparateur transversal inter-poules — Art. II.109 du règlement FFTT.
@@ -300,10 +303,11 @@ const computeBracketStructure = (autoQualifiers, thirdsCount) => {
 // Placement manuel de la consolante (drag & drop). Contrairement au reste, cette
 // clé est écrite directement par ConsolanteScreen, pas par App : elle doit donc
 // être purgée explicitement partout où le tournoi repart de zéro.
-// Le suffixe de version est incrémenté dès que buildSeedingPattern change : un
-// placement construit avec l'ancien pattern doit être jeté, pas rechargé.
-const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v2';
-const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds'];
+// Le suffixe de version est incrémenté dès que le placement change — que ce soit
+// buildSeedingPattern ou la numérotation des têtes de série de la consolante : un
+// placement construit avec l'ancienne règle doit être jeté, pas rechargé.
+const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v3';
+const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2'];
 
 const clearConsolanteSeeds = () => {
   try {

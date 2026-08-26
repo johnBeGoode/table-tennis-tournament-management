@@ -20,10 +20,10 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=6"></script>
-<script type="text/babel" src="PoolsScreen.jsx?v=5"></script>
-<script type="text/babel" src="BracketsScreen.jsx?v=6"></script>
-<script type="text/babel" src="ResultsScreen.jsx?v=6"></script>
+<script type="text/babel" src="AppShell.jsx?v=8"></script>
+<script type="text/babel" src="PoolsScreen.jsx?v=11"></script>
+<script type="text/babel" src="BracketsScreen.jsx?v=13"></script>
+<script type="text/babel" src="ResultsScreen.jsx?v=8"></script>
 <script type="text/babel">
 // KnockoutScreen — Tableau dynamique (n poules)
 // Taille du bracket = prochaine puissance de 2 >= pools.length * 2
@@ -137,17 +137,23 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     return r.winner === 1 ? r.p1 : r.p2;
   });
 
-  // Classement officiel par groupes — quotients inter-poules (Art. II.109 FFTT)
+  // Têtes de série protégées : l'ordre des poules fait le numéro de TS.
+  // 1er de la poule A = TS 1, 1er de la poule B = TS 2, … puis les 2es dans ce même ordre.
+  // Les quotients ne servent PAS ici (ils départagent à l'intérieur d'une poule) ;
+  // `firstRaw` / `secondRaw` sont déjà construits en parcourant `pools`.
   const sortByPerf = (arr) => [...arr].sort(window.crossPoolCompare);
   const firstRaw  = pools.map(pool => { const st = poolStandings(pool); const p = st[0]; if (!p) return null; return { ...p, ...st.find(s=>s.id===p.id) }; }).filter(Boolean);
   const secondRaw = pools.map(pool => { const st = poolStandings(pool); const p = st[1]; if (!p) return null; return { ...p, ...st.find(s=>s.id===p.id) }; }).filter(Boolean);
-  const firstSorted  = sortByPerf(firstRaw);
-  const secondSorted = sortByPerf(secondRaw);
 
-  // En mode 'eliminate' : retirer les moins bons 2es du tableau principal (vers consolante)
+  // En mode 'eliminate' : retirer les moins bons 2es du tableau principal (vers consolante).
+  // Le choix des éliminés reste au mérite (quotients inter-poules) — c'est une question de
+  // classement, pas de placement ; les retenus gardent l'ordre des poules.
   const keptSeconds = struct.mode === 'eliminate'
-    ? secondSorted.slice(0, secondSorted.length - struct.eliminateCount)
-    : secondSorted;
+    ? (() => {
+        const out = new Set(sortByPerf(secondRaw).slice(secondRaw.length - struct.eliminateCount).map(p => p.id));
+        return secondRaw.filter(p => !out.has(p.id));
+      })()
+    : secondRaw;
 
   const bracketSize = principalBracketSize;
 
@@ -166,7 +172,7 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     // Chaque barrage garde un slot de seed FIXE (pas de compactage) : un barrage
     // non joué laisse son slot vide au lieu de décaler les autres vainqueurs.
     const seedMap = {};
-    firstSorted.forEach((p, i)  => { seedMap[i + 1] = p; });
+    firstRaw.forEach((p, i)     => { seedMap[i + 1] = p; });
     keptSeconds.forEach((p, i)  => { seedMap[n + i + 1] = p; });
     barrageWinners.forEach((p, i) => { if (p) seedMap[n + keptSeconds.length + i + 1] = p; });
 
@@ -416,7 +422,7 @@ Object.assign(window, { KnockoutScreen });
 
 </script>
 <script type="text/babel" src="BarrageScreen.jsx?v=5"></script>
-<script type="text/babel" src="ConsolanteScreen.jsx?v=7"></script>
+<script type="text/babel" src="ConsolanteScreen.jsx?v=9"></script>
 
 <script type="text/babel">
 const DEFAULT_SCREEN = /*EDITMODE-BEGIN*/"consolante"/*EDITMODE-END*/;
