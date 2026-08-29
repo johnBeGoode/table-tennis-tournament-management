@@ -358,9 +358,19 @@ const TEST_FIRST_NAMES = [
 
 const MAX_TEST_PLAYERS = 128;
 
+// Plancher de classement : un joueur loisir / non classé compte pour 500 points,
+// le plus bas classement FFTT. Personne n'est donc « sans points » — ni à la saisie,
+// ni dans les joueurs de test, ni dans les tournois déjà enregistrés (migration
+// au chargement dans `App`).
+const MIN_RANKING = 500;
+const normalizeRanking = (value) => {
+  const n = typeof value === 'number' ? value : parseInt(value, 10);
+  return Number.isFinite(n) ? Math.max(MIN_RANKING, n) : MIN_RANKING;
+};
+
 // Génère `count` joueurs de test : prénoms distincts (tirés sans remise, puis
-// suffixés « Julien 2 » au-delà de la liste) et points FFTT plausibles, avec
-// environ 10 % de non-classés (ranking null) pour couvrir ce cas limite.
+// suffixés « Julien 2 » au-delà de la liste) et points FFTT plausibles, jamais
+// en dessous du plancher de 500.
 const randomPlayers = (count) => {
   const n = Math.max(1, Math.min(Math.floor(count) || 0, MAX_TEST_PLAYERS));
   const names = [...TEST_FIRST_NAMES];
@@ -376,9 +386,9 @@ const randomPlayers = (count) => {
     return {
       id: base + i,
       name: lap === 0 ? first : `${first} ${lap + 1}`,
-      ranking: Math.random() < 0.1 ? null : Math.round((500 + Math.random() * 1500) / 5) * 5,
+      ranking: normalizeRanking(Math.round((MIN_RANKING + Math.random() * 1500) / 5) * 5),
     };
   });
 };
 
-Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers });
+Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });

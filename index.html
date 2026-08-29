@@ -20,10 +20,10 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=8"></script>
-<script type="text/babel" src="PoolsScreen.jsx?v=11"></script>
+<script type="text/babel" src="AppShell.jsx?v=9"></script>
+<script type="text/babel" src="PoolsScreen.jsx?v=15"></script>
 <script type="text/babel" src="BracketsScreen.jsx?v=13"></script>
-<script type="text/babel" src="ResultsScreen.jsx?v=8"></script>
+<script type="text/babel" src="ResultsScreen.jsx?v=11"></script>
 <script type="text/babel">
 // KnockoutScreen — Tableau dynamique (n poules)
 // Taille du bracket = prochaine puissance de 2 >= pools.length * 2
@@ -34,6 +34,7 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
   const [modal, setModal] = React.useState(null);
   const [score, setScore] = React.useState({ p1: '', p2: '' });
   const firstInputRef = React.useRef(null);
+  const saveBtnRef = React.useRef(null);
 
   const SETS_TO_WIN = 3;
   const accentColor = type === 'principal' ? '#20bf6b' : '#f79025';
@@ -46,6 +47,12 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     if (s2 === SETS_TO_WIN && s1 < SETS_TO_WIN) return 2;
     return null;
   })();
+
+  // Dès que le vainqueur est désigné, le curseur passe sur « Enregistrer » : Entrée
+  // valide alors le match sans repasser par la souris. Même règle que la saisie de poule.
+  React.useEffect(() => {
+    if (modal && autoWinner) saveBtnRef.current?.focus();
+  }, [autoWinner, modal?.matchId]);
 
   // Classement d'une poule — délégué au helper partagé (AppShell)
   const poolStandings = (pool) => window.poolStandings(pool, players, results);
@@ -406,7 +413,7 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
               <button onClick={() => setModal(null)} style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
                 Annuler
               </button>
-              <button onClick={saveResult} disabled={!autoWinner}
+              <button ref={saveBtnRef} onClick={saveResult} disabled={!autoWinner}
                 style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: autoWinner ? accentColor : t.tableBorder, color: '#fff', fontWeight: 700, fontSize: 13, cursor: autoWinner ? 'pointer' : 'not-allowed', opacity: autoWinner ? 1 : 0.5 }}>
                 <i className="fas fa-save" style={{ marginRight: 6 }}></i>Enregistrer
               </button>
@@ -422,7 +429,7 @@ Object.assign(window, { KnockoutScreen });
 
 </script>
 <script type="text/babel" src="BarrageScreen.jsx?v=5"></script>
-<script type="text/babel" src="ConsolanteScreen.jsx?v=9"></script>
+<script type="text/babel" src="ConsolanteScreen.jsx?v=11"></script>
 
 <script type="text/babel">
 const DEFAULT_SCREEN = /*EDITMODE-BEGIN*/"consolante"/*EDITMODE-END*/;
@@ -443,7 +450,10 @@ const App = () => {
   React.useEffect(() => { saveState('ertt-screen', screen); }, [screen]);
 
   // Shared state
-  const [players, setPlayers] = React.useState(() => loadState('ertt-players', []));
+  // Migration : les joueurs sans points (non classés d'avant le plancher) ou sous
+  // 500 sont remontés à 500 — plus personne n'est « sans points ».
+  const [players, setPlayers] = React.useState(() => loadState('ertt-players', [])
+    .map(p => ({ ...p, ranking: window.normalizeRanking(p.ranking) })));
   const [pools, setPools] = React.useState(() => loadState('ertt-pools', []));
   const [results, setResults] = React.useState(() => {
     const raw = loadState('ertt-results', {});

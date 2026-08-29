@@ -128,6 +128,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   const [modal, setModal] = React.useState(null);
   const [score, setScore] = React.useState({ p1: '', p2: '' });
   const firstInputRef = React.useRef(null);
+  const saveBtnRef = React.useRef(null);
   const SETS_TO_WIN = 3;
 
 
@@ -231,6 +232,12 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     if (s2 === SETS_TO_WIN && s1 < SETS_TO_WIN) return 2;
     return null;
   })();
+
+  // Dès que le vainqueur est désigné, le curseur passe sur « Enregistrer » — même
+  // comportement que le tableau principal (KnockoutScreen, dans index.html).
+  React.useEffect(() => {
+    if (modal && autoWinner) saveBtnRef.current?.focus();
+  }, [autoWinner, modal?.matchId]);
 
   const resolveMatch = (match, role, isR1 = false) => {
     if (!match) return null;
@@ -446,11 +453,14 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
           {eligibleList.length} joueurs éligibles · tableau de {bracketSize}
         </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <button onClick={() => setShowBracket(v => !v)}
-            style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textPrimary, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
-            <i className={`fas fa-${showBracket ? 'list' : 'sitemap'}`} style={{ marginRight: 6 }}></i>
-            {showBracket ? 'Placement' : 'Tableau'}
-          </button>
+          {/* Retour au placement — seulement depuis le tableau : en vue placement,
+              c'est le bouton « Voir le tableau → » du bas qui fait l'aller. */}
+          {showBracket && (
+            <button onClick={() => setShowBracket(false)}
+              style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textPrimary, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
+              <i className="fas fa-list" style={{ marginRight: 6 }}></i>Placement
+            </button>
+          )}
           <button onClick={clearAll}
             style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid #f96b6b`, background: 'transparent', color: '#f96b6b', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
             <i className="fas fa-trash" style={{ marginRight: 6 }}></i>Réinitialiser
@@ -615,7 +625,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
               <button onClick={() => setModal(null)} style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
                 Annuler
               </button>
-              <button onClick={saveResult} disabled={!autoWinner}
+              <button ref={saveBtnRef} onClick={saveResult} disabled={!autoWinner}
                 style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: autoWinner ? accentColor : t.tableBorder, color: '#fff', fontWeight: 700, fontSize: 13, cursor: autoWinner ? 'pointer' : 'not-allowed', opacity: autoWinner ? 1 : 0.5 }}>
                 <i className="fas fa-save" style={{ marginRight: 6 }}></i>Enregistrer
               </button>

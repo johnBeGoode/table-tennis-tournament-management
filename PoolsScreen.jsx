@@ -22,8 +22,10 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
 
   const addPlayer = () => {
     if (!newName.trim()) return;
-    const ranking = newRanking.trim() === '' ? null : Number(newRanking.trim());
-    onUpdatePlayers(prev => [...prev, { id: Date.now(), name: newName.trim(), ranking: Number.isFinite(ranking) ? ranking : null }]);
+    // Champ vide, valeur illisible ou inférieure au plancher : le joueur est traité
+    // comme un loisir à 500 points (window.normalizeRanking, AppShell).
+    const ranking = window.normalizeRanking(newRanking.trim());
+    onUpdatePlayers(prev => [...prev, { id: Date.now(), name: newName.trim(), ranking }]);
     setNewName('');
     setNewRanking('');
     // Saisie en rafale : le curseur revient au nom, jamais au classement.
@@ -57,9 +59,12 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
   const autoPoolName = (i) => `Poule ${i < 26 ? String.fromCharCode(65 + i) : i + 1}`;
 
   // Nombre de poules par défaut : on vise des poules de 4 (format le plus courant).
-  const defaultPoolCount = Math.max(1, Math.ceil(players.length / 4));
+  // C'est aussi le plancher : descendre en dessous produirait des poules de 5 ou plus,
+  // écartées volontairement du tournoi (round robin trop long, qualifications ambiguës).
+  const MAX_POOL_SIZE = 4;
+  const defaultPoolCount = Math.max(1, Math.ceil(players.length / MAX_POOL_SIZE));
   const effectivePoolCount = Math.min(
-    Math.max(1, autoPoolCount ?? defaultPoolCount),
+    Math.max(defaultPoolCount, autoPoolCount ?? defaultPoolCount),
     Math.max(1, players.length)
   );
   const previewBuckets = players.length > 0 ? snakeDistribute(sortedPlayers, effectivePoolCount) : [];
@@ -218,7 +223,7 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
             />
             <input
               placeholder="Classement"
-              title="Classement (points)"
+              title="Classement (points) — vide ou inférieur à 500 : le joueur est compté à 500"
               type="number"
               value={newRanking}
               onChange={e => setNewRanking(e.target.value)}
@@ -372,6 +377,10 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
                       Annuler
                     </button>
                   </div>
+                ) : poolPlayers.length >= MAX_POOL_SIZE ? (
+                  /* Poule pleine : poules de 4 maximum, à la main comme en répartition
+                     auto — le bouton d'ajout disparaît, sans message. */
+                  null
                 ) : (
                   <button onClick={() => setAddingToPool(pool.id)}
                     style={{ width: '100%', background: 'transparent', border: 'none', borderTop: poolPlayers.length > 0 ? `1px dashed ${t.tableBorder}` : 'none', padding: '10px 16px', cursor: 'pointer', color: t.primary, fontSize: 13, fontWeight: 600, textAlign: 'left' }}>
@@ -387,7 +396,7 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
       {/* Modale de répartition automatique — méthode du serpent */}
       {showAutoDraw && (() => {
         // Raccourcis « poules de N » — proposés seulement s'ils ont du sens vu l'effectif.
-        const presets = [3, 4, 5]
+        const presets = [3, MAX_POOL_SIZE]
           .map(size => ({ size, count: Math.ceil(players.length / size) }))
           .filter((p, i, arr) => p.count >= 1 && arr.findIndex(o => o.count === p.count) === i);
 
@@ -415,9 +424,10 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
                   Nombre de poules
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 2, border: `1px solid ${t.tableBorder}`, borderRadius: 8, background: t.pageBg, padding: 3 }}>
-                  <button onClick={() => setAutoPoolCount(Math.max(1, effectivePoolCount - 1))}
-                    disabled={effectivePoolCount <= 1}
-                    style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'transparent', color: t.textSecondary, cursor: effectivePoolCount <= 1 ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+                  <button onClick={() => setAutoPoolCount(Math.max(defaultPoolCount, effectivePoolCount - 1))}
+                    disabled={effectivePoolCount <= defaultPoolCount}
+                    title={effectivePoolCount <= defaultPoolCount ? `Minimum : au-delà, les poules dépasseraient ${MAX_POOL_SIZE} joueurs` : undefined}
+                    style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'transparent', color: t.textSecondary, cursor: effectivePoolCount <= defaultPoolCount ? 'not-allowed' : 'pointer', fontSize: 12 }}>
                     <i className="fas fa-minus"></i>
                   </button>
                   <span style={{ minWidth: 30, textAlign: 'center', fontSize: 15, fontWeight: 700, color: t.textPrimary }}>{effectivePoolCount}</span>
@@ -444,7 +454,12 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
               </div>
 
               {/* Aperçu de la répartition */}
-              <div style={{ flex: 1, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10, paddingRight: 2 }}>
+              {/* gridAutoRows: 'max-content' est indispensable ici : la grille est un élément
+                  flex à hauteur définie (flex: 1) ; sans lui, Chrome comprime ses lignes
+                  implicites pour les faire tenir dans le panneau, et les cartes — en
+                  overflow: hidden — perdaient leur dernière ligne de joueur dès que
+                  l'aperçu était plus haut que le panneau (poules de 4 à partir de 16 poules). */}
+              <div style={{ flex: 1, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gridAutoRows: 'max-content', alignItems: 'start', gap: 10, paddingRight: 2 }}>
                 {previewBuckets.map((bucket, i) => (
                   <div key={i} style={{ border: `1px solid ${t.tableBorder}`, borderRadius: 10, overflow: 'hidden' }}>
                     <div style={{ background: t.tableHeaderBg, padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${t.tableBorder}` }}>

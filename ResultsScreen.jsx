@@ -130,6 +130,7 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
   const [sets, setSets] = React.useState(() => Array.from({ length: MAX_SETS }, emptySet));
   const [setErrors, setSetErrors] = React.useState(() => Array(MAX_SETS).fill(null));
   const scorePanelRef = React.useRef(null);
+  const saveBtnRef = React.useRef(null);
   // Refs pour focus automatique: inputRefs[setIdx][0=s1, 1=s2]
   const inputRefs = React.useRef(Array.from({ length: MAX_SETS }, () => [null, null]));
 
@@ -160,14 +161,23 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
     return -1;
   })();
 
+  // Focus automatique — source unique du placement du curseur pendant la saisie :
+  // le set actif attire le curseur sur le score du joueur 1, et dès que le vainqueur
+  // est désigné c'est le bouton « Enregistrer » qui le prend (Entrée valide alors le match).
+  // Les dépendances ne changent qu'au passage d'un set au suivant, jamais pendant la
+  // frappe : le curseur n'est donc pas volé si l'utilisateur revient sur le 2e champ.
+  React.useEffect(() => {
+    if (!selected) return;
+    const el = matchOver ? saveBtnRef.current : inputRefs.current[activeSetIdx]?.[0];
+    if (el && !el.disabled) el.focus({ preventScroll: true });
+  }, [selected?.id, activeSetIdx, matchOver]);
+
   const handleSelect = (m) => {
     setSelected(m);
     setSets(initialSets());
     setSetErrors(Array(MAX_SETS).fill(null));
     setTimeout(() => {
-      // Curseur directement dans le 1er set (score du joueur 1)
-      const first = inputRefs.current[0]?.[0];
-      if (first && !first.disabled) first.focus({ preventScroll: true });
+      // Le curseur est placé par l'effet de focus ci-dessus ; ici, uniquement le défilement.
       const el = scorePanelRef.current;
       if (!el) return;
       // Fait défiler le premier ancêtre scrollable (pas de scrollIntoView,
@@ -327,7 +337,9 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
                   // toute la liste d'un pixel à chaque sélection. L'anneau porte l'état.
                   border: `1px solid ${isSel ? t.primary : t.tableBorder}`,
                   boxShadow: isSel ? `0 0 0 2px ${t.primary}22` : t.cardShadow,
-                  padding: '8px 12px', cursor: 'pointer', transition: 'all .15s ease',
+                  // Padding vertical calé pour que la carte fasse la même hauteur (55px) qu'une carte
+                  // de match terminé, qui porte une ligne de détail des sets en plus.
+                  padding: '19px 12px', cursor: 'pointer', transition: 'all .15s ease',
                   display: 'flex', alignItems: 'center', gap: 10,
                 }}>
                   <span style={{ minWidth: MATCH_TAG_WIDTH, textAlign: 'center', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: t.tagRadius, background: rc.bg, color: rc.color, whiteSpace: 'nowrap' }}>{m.round}</span>
@@ -488,13 +500,9 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
                             onKeyDown={e => {
                               if (e.key !== 'Tab') return;
                               e.preventDefault();
-                              // Valider le set courant
+                              // Valider le set courant : l'effet de focus enchaîne
+                              // sur le set suivant, ou sur « Enregistrer » si le match est plié.
                               handleBlur(idx, 's2');
-                              // Focus sur le s1 du set suivant (après rendu)
-                              setTimeout(() => {
-                                const next = inputRefs.current[idx + 1]?.[0];
-                                if (next && !next.disabled) next.focus();
-                              }, 50);
                             }}
                             style={{ width: 56, textAlign: 'center', borderRadius: 6, border: `1.5px solid ${set2won ? t.primary : t.inputBorder}`, background: set2won ? `${t.primary}10` : t.inputBg, fontSize: 20, fontWeight: 900, color: set2won ? t.primary : t.textPrimary, padding: '6px 4px', outline: 'none', opacity: !isActive && !s.done ? .4 : 1 }}
                           />
@@ -515,7 +523,7 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
 
                 {/* Boutons */}
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <button onClick={handleSave} disabled={!matchOver} style={{
+                  <button ref={saveBtnRef} onClick={handleSave} disabled={!matchOver} style={{
                     flex: 1, border: 'none', borderRadius: t.btnRadius, padding: '11px',
                     fontWeight: 700, fontSize: 14, cursor: matchOver ? 'pointer' : 'not-allowed',
                     background: matchOver ? t.primary : t.pageBg,
