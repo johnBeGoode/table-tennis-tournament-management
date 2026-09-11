@@ -1,4 +1,5 @@
-// ConsolanteScreen — Tableau consolante avec placement manuel par drag & drop
+// ConsolanteScreen — Tableau consolante avec placement manuel par drag & drop,
+// en classement intégral (structure : AppShell.buildIntegralBracket, avec byes)
 
 const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, bracketResults, onUpdateBracketResults }) => {
   const t = window.THEMES[theme];
@@ -216,6 +217,25 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     setSeeds(next);
   };
 
+  // Données de test : scores aléatoires sur tous les matchs restants (les résultats
+  // déjà saisis sont conservés). Tour par tour, puisque chaque tour dépend du précédent.
+  const generateScores = () => {
+    onUpdateBracketResults(prev => {
+      const next = { ...prev };
+      let b = window.buildIntegralBracket(seeds, prefix, next, { byes: true });
+      for (let round = 1; round <= b.totalRounds; round++) {
+        b.groups.filter(g => g.round === round).forEach(g => g.matches.forEach(m => {
+          if (!m.p1 || !m.p2 || next[m.id]) return;
+          const winner = Math.random() < 0.5 ? 1 : 2;
+          const loserSets = Math.floor(Math.random() * SETS_TO_WIN);
+          next[m.id] = { p1: m.p1, p2: m.p2, winner, score1: winner === 1 ? SETS_TO_WIN : loserSets, score2: winner === 2 ? SETS_TO_WIN : loserSets };
+        }));
+        b = window.buildIntegralBracket(seeds, prefix, next, { byes: true });
+      }
+      return next;
+    });
+  };
+
   const clearAll = () => {
     setSeeds(Array(bracketSize).fill(null));
     onUpdateBracketResults(prev => {
@@ -239,51 +259,15 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     if (modal && autoWinner) saveBtnRef.current?.focus();
   }, [autoWinner, modal?.matchId]);
 
-  const resolveMatch = (match, role, isR1 = false) => {
-    if (!match) return null;
-    const r = bracketResults[match.id];
-    if (r) return role === 'winner' ? (r.winner === 1 ? r.p1 : r.p2) : (r.winner === 1 ? r.p2 : r.p1);
-    if (isR1) {
-      if (match.p1 && !match.p2) return role === 'winner' ? match.p1 : null;
-      if (match.p2 && !match.p1) return role === 'winner' ? match.p2 : null;
-    }
-    return null;
-  };
-
-  const r1 = [];
-  for (let i = 0; i < bracketSize / 2; i++) {
-    r1.push({
-      id: `${prefix}-r1-${i + 1}`,
-      p1: seeds[i * 2] || null,
-      p2: seeds[i * 2 + 1] || null,
-    });
-  }
-
-  const allRounds = [r1];
-  let roundNum = 2;
-  while (allRounds[allRounds.length - 1].length > 1) {
-    const prev = allRounds[allRounds.length - 1];
-    const isR1 = allRounds.length === 1;
-    const newRound = [];
-    for (let i = 0; i < prev.length; i += 2) {
-      newRound.push({
-        id: `${prefix}-r${roundNum}-${i / 2 + 1}`,
-        p1: resolveMatch(prev[i], 'winner', isR1),
-        p2: resolveMatch(prev[i + 1] || null, 'winner', isR1),
-      });
-    }
-    allRounds.push(newRound);
-    roundNum++;
-  }
-
-  const totalRounds = allRounds.length;
-  const semiRound = allRounds.length >= 2 ? allRounds[allRounds.length - 2] : null;
-  const thirdPlaceMatch = (semiRound && semiRound.length === 2) ? {
-    id: `${prefix}-3rd`,
-    label: '3e place',
-    p1: resolveMatch(semiRound[0], 'loser', false),
-    p2: resolveMatch(semiRound[1], 'loser', false),
-  } : null;
+  // Classement intégral — même construction que le tableau principal, mais avec
+  // des byes : la consolante n'est pas forcément pleine (taille = puissance de 2
+  // supérieure), un slot vide au 1er tour est un bye qui se propage.
+  const { groups, totalRounds, descendants } = window.buildIntegralBracket(seeds, prefix, bracketResults, { byes: true });
+  const columns = Array.from({ length: totalRounds }, (_, i) => ({
+    round: i + 1,
+    groups: groups.filter(g => g.round === i + 1).sort((a, b) => a.startPlace - b.startPlace),
+  }));
+  const hasPendingMatch = groups.some(g => g.matches.some(m => m.p1 && m.p2 && !bracketResults[m.id]));
 
   const roundLabel = (roundIdx, total) => {
     const fromEnd = total - 1 - roundIdx;
@@ -312,16 +296,24 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     setModal(null);
   };
 
+  // Effacer un résultat efface aussi sa chaîne de dépendance (branches vainqueur
+  // ET perdant), sinon des scores orphelins resteraient affichés en aval.
   const clearResult = (matchId, e) => {
     e.stopPropagation();
-    onUpdateBracketResults(prev => { const n = { ...prev }; delete n[matchId]; return n; });
+    onUpdateBracketResults(prev => {
+      const n = { ...prev };
+      delete n[matchId];
+      (descendants[matchId] || []).forEach(id => { delete n[id]; });
+      return n;
+    });
   };
 
   // ── Composants visuels ───────────────────────────────────────────────────
-  const PlayerRow = ({ player, isWinner, sc, isBye }) => (
+  // `gold` : le vainqueur de la finale a une coupe en or, les autres la couleur de l'écran
+  const PlayerRow = ({ player, isWinner, sc, isBye, gold }) => (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: isWinner ? `${accentColor}18` : 'transparent', opacity: player ? 1 : 0.35 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-        {isWinner && <i className="fas fa-trophy" style={{ color: accentColor, fontSize: 10 }}></i>}
+        {isWinner && <i className="fas fa-trophy" style={{ color: gold ? '#FFA500' : accentColor, fontSize: gold ? 12 : 10 }}></i>}
         <span style={{ fontSize: 12, fontWeight: isWinner ? 700 : 500, color: t.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 130 }}>
           {player ? player.name : (isBye ? '— Bye —' : '—')}
         </span>
@@ -332,11 +324,12 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     </div>
   );
 
-  const MatchCard = ({ match, isHighlight, customLabel, isR1 }) => {
+  const MatchCard = ({ match, isHighlight, customLabel }) => {
     const r = bracketResults[match.id];
     const winner = r?.winner;
     const canPlay = match.p1 && match.p2;
-    const isByeMatch = isR1 && ((match.p1 && !match.p2) || (match.p2 && !match.p1));
+    // Bye (structurel, à n'importe quel tour) : le match ne se joue pas, l'autre passe
+    const isByeMatch = match.bye1 || match.bye2;
     return (
       <div onClick={() => canPlay && openModal(match.id, match.p1, match.p2)}
         style={{ background: isByeMatch ? `${t.cardBg}88` : t.cardBg, border: `1.5px solid ${isHighlight ? accentColor : t.tableBorder}`, borderRadius: t.cardRadius, overflow: 'hidden', cursor: canPlay ? 'pointer' : 'default', boxShadow: isHighlight ? `0 0 0 3px ${accentColor}25` : t.cardShadow, minWidth: 170, opacity: isByeMatch ? 0.6 : 1, userSelect: 'none' }}>
@@ -347,13 +340,13 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
             {r && <button onClick={e => clearResult(match.id, e)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: isHighlight ? 'rgba(255,255,255,.7)' : t.textSecondary, fontSize: 10, padding: 0 }}><i className="fas fa-times"></i></button>}
           </div>
         )}
-        <PlayerRow player={match.p1} isWinner={winner === 1} sc={r?.score1} isBye={isR1 && !match.p1} />
+        <PlayerRow player={match.p1} isWinner={winner === 1} sc={r?.score1} isBye={match.bye1} gold={isHighlight} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px' }}>
           <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
           <span style={{ fontSize: 9, fontWeight: 700, color: t.textSecondary, opacity: 0.4, letterSpacing: '.5px' }}>VS</span>
           <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
         </div>
-        <PlayerRow player={match.p2} isWinner={winner === 2} sc={r?.score2} isBye={isR1 && !match.p2} />
+        <PlayerRow player={match.p2} isWinner={winner === 2} sc={r?.score2} isBye={match.bye2} gold={isHighlight} />
       </div>
     );
   };
@@ -362,15 +355,32 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     <div style={{ fontSize: 10, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10, whiteSpace: 'nowrap' }}>{label}</div>
   );
 
-  const Arrow = ({ count }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-around', padding: '28px 6px 0', flexShrink: 0 }}>
-      {Array.from({ length: count }).map((_, i) => (
-        <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-          <div style={{ width: 20, height: 1, background: t.tableBorder }}></div>
-        </div>
-      ))}
+  // Encadré d'un bloc de matchs de classement
+  const boxStyle = { padding: 14, border: `1.5px solid ${t.tableBorder}`, borderRadius: t.cardRadius, background: '#e9ebee' };
+
+  const GroupLabel = ({ label }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0 8px' }}>
+      <span style={{ fontSize: 10, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', whiteSpace: 'nowrap' }}>{label}</span>
+      <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
     </div>
   );
+
+  // Un groupe = un tour d'un sous-tableau (même rendu que le tableau principal)
+  const renderGroup = (g) => {
+    const isSpine = g.startPlace === 1;
+    const isFinal = isSpine && g.size === 2;
+    const terminal = g.size === 2;
+    const label = window.placementLabel(g);
+    return (
+      <div key={g.key} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {!isSpine && !terminal && <GroupLabel label={label} />}
+        {g.matches.map(m => (
+          <MatchCard key={m.id} match={m} isHighlight={isFinal}
+            customLabel={terminal && !isFinal ? label : undefined} />
+        ))}
+      </div>
+    );
+  };
 
   // ── Phase de placement ────────────────────────────────────────────────────
   const [showBracket, setShowBracket] = React.useState(() => {
@@ -461,6 +471,12 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
               <i className="fas fa-list" style={{ marginRight: 6 }}></i>Placement
             </button>
           )}
+          {showBracket && (
+            <button onClick={generateScores} disabled={!hasPendingMatch}
+              style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: hasPendingMatch ? accentColor : t.tableBorder, color: hasPendingMatch ? '#fff' : t.textSecondary, fontWeight: 600, fontSize: 12, cursor: hasPendingMatch ? 'pointer' : 'default' }}>
+              <i className="fas fa-dice" style={{ marginRight: 6 }}></i>Générer les scores
+            </button>
+          )}
           <button onClick={clearAll}
             style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid #f96b6b`, background: 'transparent', color: '#f96b6b', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
             <i className="fas fa-trash" style={{ marginRight: 6 }}></i>Réinitialiser
@@ -549,52 +565,32 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
           </div>
         </div>
       ) : (
-        /* ── Vue Tableau (bracket) ── */
-        <div style={{ display: 'flex', gap: 0, alignItems: 'stretch', overflowX: 'auto', paddingBottom: 12 }}>
-          {allRounds.map((round, rIdx) => {
-            const isLastRound = rIdx === totalRounds - 1;
-            const label = roundLabel(rIdx, totalRounds);
-            const nextCount = isLastRound ? 0 : Math.ceil(round.length / 2);
-
-            if (isLastRound) {
-              const finalMatch = round[0];
-              // Bloc 3e place — dupliqué en version invisible au-dessus de la finale
-              // pour contrebalancer sa hauteur : ainsi le centre visuel de la finale
-              // reste aligné sur le point médian des 2 demi-finales, quelle que soit
-              // la présence ou non du match de 3e place. Même construction que le
-              // tableau principal : en flux normal, jamais en position absolue, qui
-              // faisait chevaucher les deux cartes sur les petits tableaux.
-              const thirdPlaceBlock = thirdPlaceMatch && (
-                <div>
-                  <div style={{ borderTop: `2px dashed ${t.textSecondary}`, marginBottom: 20, opacity: 0.35 }}></div>
-                  <MatchCard match={thirdPlaceMatch} isHighlight={false} customLabel="3e place" />
-                </div>
-              );
-              return (
-                <React.Fragment key={rIdx}>
-                  <Arrow count={nextCount || 1} />
-                  <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, alignSelf: 'stretch', minWidth: 185 }}>
-                    <ColHeader label={label} />
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 20 }}>
-                      {thirdPlaceMatch && <div style={{ visibility: 'hidden' }}>{thirdPlaceBlock}</div>}
-                      <MatchCard match={finalMatch} isHighlight={true} />
-                      {thirdPlaceBlock}
-                    </div>
-                  </div>
-                </React.Fragment>
-              );
-            }
-
+        /* ── Vue Tableau (bracket) ── une colonne par tour ; l'épine principale en
+           haut, puis, bien détachés, les sous-tableaux de classement encadrés
+           (un par sous-tableau ouvert, un seul pour les matchs de place terminaux). */
+        <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', overflowX: 'auto', paddingBottom: 12 }}>
+          {columns.map((col, cIdx) => {
+            const spine = col.groups.filter(g => g.startPlace === 1);
+            const placement = col.groups.filter(g => g.startPlace !== 1);
             return (
-              <React.Fragment key={rIdx}>
-                {rIdx > 0 && <Arrow count={nextCount} />}
-                <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-                  <ColHeader label={label} />
-                  <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-around', gap: 10 }}>
-                    {round.map(m => <MatchCard key={m.id} match={m} isHighlight={false} isR1={rIdx === 0} />)}
-                  </div>
+              <div key={col.round} style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, minWidth: 185 }}>
+                <ColHeader label={roundLabel(cIdx, totalRounds)} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                  {spine.map(renderGroup)}
                 </div>
-              </React.Fragment>
+                {placement.length > 0 && (
+                  <div style={{ marginTop: 64, display: 'flex', flexDirection: 'column', gap: 18 }}>
+                    {placement.filter(g => g.size > 2).map(g => (
+                      <div key={g.key} style={boxStyle}>{renderGroup(g)}</div>
+                    ))}
+                    {placement.some(g => g.size === 2) && (
+                      <div style={{ ...boxStyle, display: 'flex', flexDirection: 'column', gap: 18 }}>
+                        {placement.filter(g => g.size === 2).map(renderGroup)}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>

@@ -20,7 +20,7 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=12"></script>
+<script type="text/babel" src="AppShell.jsx?v=13"></script>
 <script type="text/babel" src="PoolsScreen.jsx?v=15"></script>
 <script type="text/babel" src="BracketsScreen.jsx?v=15"></script>
 <script type="text/babel" src="ResultsScreen.jsx?v=11"></script>
@@ -117,6 +117,27 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     groups: groups.filter(g => g.round === i + 1).sort((a, b) => a.startPlace - b.startPlace),
   }));
   const matchesPerRound = bracketSize / 2;
+  const hasPendingMatch = groups.some(g => g.matches.some(m => m.p1 && m.p2 && !bracketResults[m.id]));
+
+  // Données de test : scores aléatoires sur tous les matchs restants (les résultats
+  // déjà saisis sont conservés). Tour par tour, puisque chaque tour dépend du précédent.
+  // Même bouton que la consolante ; ici pas de byes (un slot vide = barrage en attente).
+  const generateScores = () => {
+    onUpdateBracketResults(prev => {
+      const next = { ...prev };
+      let b = window.buildIntegralBracket(seeds, prefix, next);
+      for (let round = 1; round <= b.totalRounds; round++) {
+        b.groups.filter(g => g.round === round).forEach(g => g.matches.forEach(m => {
+          if (!m.p1 || !m.p2 || next[m.id]) return;
+          const winner = Math.random() < 0.5 ? 1 : 2;
+          const loserSets = Math.floor(Math.random() * SETS_TO_WIN);
+          next[m.id] = { p1: m.p1, p2: m.p2, winner, score1: winner === 1 ? SETS_TO_WIN : loserSets, score2: winner === 2 ? SETS_TO_WIN : loserSets };
+        }));
+        b = window.buildIntegralBracket(seeds, prefix, next);
+      }
+      return next;
+    });
+  };
 
   // Nom du round selon position dans le bracket
   const roundLabel = (roundIdx, total) => {
@@ -242,6 +263,12 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
           {pools.length} poules · tableau de {bracketSize} · classement intégral · {totalRounds} tour{totalRounds > 1 ? 's' : ''} · {matchesPerRound * totalRounds} matchs ({totalRounds} par joueur)
         </span>
         <span style={{ fontSize: 12, color: t.textSecondary }}>· Cliquez sur un match pour entrer le résultat</span>
+        <div style={{ marginLeft: 'auto' }}>
+          <button onClick={generateScores} disabled={!hasPendingMatch}
+            style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: hasPendingMatch ? accentColor : t.tableBorder, color: hasPendingMatch ? '#fff' : t.textSecondary, fontWeight: 600, fontSize: 12, cursor: hasPendingMatch ? 'pointer' : 'default' }}>
+            <i className="fas fa-dice" style={{ marginRight: 6 }}></i>Générer les scores
+          </button>
+        </div>
       </div>
 
       {/* Une colonne par tour, N/2 matchs par colonne : tout ce qui est dans une
@@ -324,7 +351,7 @@ Object.assign(window, { KnockoutScreen });
 
 </script>
 <script type="text/babel" src="BarrageScreen.jsx?v=5"></script>
-<script type="text/babel" src="ConsolanteScreen.jsx?v=11"></script>
+<script type="text/babel" src="ConsolanteScreen.jsx?v=13"></script>
 
 <script type="text/babel">
 const DEFAULT_SCREEN = /*EDITMODE-BEGIN*/"consolante"/*EDITMODE-END*/;

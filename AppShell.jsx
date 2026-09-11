@@ -412,8 +412,14 @@ const buildPrincipalSeeds = ({ pools, players, results, barrageResults }) => {
 //   `{prefix}-p{place}-r{round}-{n}`      sous-tableaux de classement (nouveau)
 // `round` est l'index GLOBAL du tour : même `r` = même colonne.
 //
+// Options : { byes: true } (consolante) — un slot vide du 1er tour est un bye
+// STRUCTUREL : il ne sera jamais rempli, l'adversaire passe d'office et le bye se
+// propage dans la branche des perdants (bye contre bye = bye). Sans cette option
+// (tableau principal), un slot vide est un barrage en attente : rien n'avance.
+//
 // Renvoie { groups, places, totalRounds, descendants } :
-//   groups      : [{ key, startPlace, endPlace, size, round, matches: [{ id, p1, p2 }] }]
+//   groups      : [{ key, startPlace, endPlace, size, round, matches: [{ id, p1, p2, bye1, bye2 }] }]
+//                 p1/p2 = joueur ou null ; bye1/bye2 = ce slot est un bye (jamais rempli)
 //   places      : { [place]: joueur } — le classement final, rempli au fil des résultats
 //   descendants : { [matchId]: [ids en aval] } — pour purger en cascade un résultat effacé
 const integralMatchId = (prefix, startPlace, size, round, idx) => {
@@ -422,37 +428,51 @@ const integralMatchId = (prefix, startPlace, size, round, idx) => {
   return `${prefix}-p${startPlace}-r${round}-${idx}`;
 };
 
-const buildIntegralBracket = (seeds, prefix, bracketResults) => {
+const BYE = Object.freeze({ bye: true });
+
+const buildIntegralBracket = (seeds, prefix, bracketResults, options = {}) => {
   const groups = [];
   const places = {};
   const descendants = {};
   const res = bracketResults || {};
+  const isBye = (v) => v === BYE;
 
-  const resolve = (matchId, role) => {
-    const r = res[matchId];
-    if (!r) return null;
-    const winner = r.winner === 1 ? r.p1 : r.p2;
-    const loser  = r.winner === 1 ? r.p2 : r.p1;
-    return role === 'winner' ? winner : loser;
+  const resolve = (m, role) => {
+    const r = res[m.id];
+    if (r) {
+      const winner = r.winner === 1 ? r.p1 : r.p2;
+      const loser  = r.winner === 1 ? r.p2 : r.p1;
+      return role === 'winner' ? winner : loser;
+    }
+    const s1 = m.bye1 ? BYE : m.p1, s2 = m.bye2 ? BYE : m.p2;
+    if (isBye(s1) && isBye(s2)) return BYE;
+    if (isBye(s1) && s2) return role === 'winner' ? s2 : BYE;
+    if (isBye(s2) && s1) return role === 'winner' ? s1 : BYE;
+    return null;   // adversaire en attente (ou match non joué)
   };
 
   // Renvoie le nœud { matches, winners, losers } du sous-tableau (arbre des tours)
   const walk = (slots, startPlace, round) => {
     const size = slots.length;
-    if (size === 1) { if (slots[0]) places[startPlace] = slots[0]; return null; }
+    if (size === 1) { if (slots[0] && !isBye(slots[0])) places[startPlace] = slots[0]; return null; }
     const matches = [];
     for (let i = 0; i < size / 2; i++) {
-      matches.push({ id: integralMatchId(prefix, startPlace, size, round, i + 1), p1: slots[2 * i], p2: slots[2 * i + 1] });
+      const a = slots[2 * i], b = slots[2 * i + 1];
+      matches.push({
+        id: integralMatchId(prefix, startPlace, size, round, i + 1),
+        p1: isBye(a) ? null : a, p2: isBye(b) ? null : b,
+        bye1: isBye(a), bye2: isBye(b),
+      });
     }
     groups.push({ key: `p${startPlace}-r${round}`, startPlace, endPlace: startPlace + size - 1, size, round, matches });
     return {
       matches,
-      winners: walk(matches.map(m => resolve(m.id, 'winner')), startPlace,            round + 1),
-      losers:  walk(matches.map(m => resolve(m.id, 'loser')),  startPlace + size / 2, round + 1),
+      winners: walk(matches.map(m => resolve(m, 'winner')), startPlace,            round + 1),
+      losers:  walk(matches.map(m => resolve(m, 'loser')),  startPlace + size / 2, round + 1),
     };
   };
 
-  const root = walk(seeds, 1, 1);
+  const root = walk(options.byes ? seeds.map(p => p || BYE) : seeds, 1, 1);
 
   // Dépendance réelle, pas « tout le tour suivant » : le match i d'un tour n'alimente
   // que le match ⌊i/2⌋ de chacune des deux branches (vainqueurs et perdants).
