@@ -12,7 +12,7 @@ Il n'y a **ni `package.json`, ni build, ni dépendances, ni tests**. React et Ba
 node -e "const h=require('http'),f=require('fs'),p=require('path'),r=process.cwd();h.createServer((q,s)=>{let u=q.url.split('?')[0];if(u==='/')u='/index.html';const fp=p.join(r,u);f.readFile(fp,(e,d)=>{if(e){s.writeHead(404);return s.end('404')}const t={'.html':'text/html','.jsx':'text/babel','.js':'text/javascript','.css':'text/css'}[p.extname(fp)]||'text/plain';s.writeHead(200,{'Content-Type':t});s.end(d)})}).listen(4173)"
 ```
 
-Puis ouvrir http://localhost:4173. `.claude/launch.json` contient la même commande (port 4173) pour `preview_start` — **son chemin racine est en dur**, à vérifier quand on travaille depuis un worktree.
+Puis ouvrir http://localhost:4173. `.claude/launch.json` (non versionné, `.claude/` est dans `.gitignore`) contient la même commande (port 4173) pour `preview_start` — **sa racine peut être un chemin en dur** vers le dépôt principal : depuis un worktree, la remplacer par `process.cwd()` sinon on teste l'ancien code sans s'en rendre compte.
 
 Ouvrir `index.html` en `file://` ne marche pas : les `<script src>` sont bloqués.
 
@@ -23,7 +23,7 @@ L'app persiste tout dans `localStorage` ; `localStorage.clear()` puis rechargeme
 Aucun test automatisé n'existe : vérifier une modification, c'est la piloter dans le navigateur.
 
 ### Monter un tournoi de test complet — 4 clics
-« Joueurs de test » **32** → Poules / « Répartition auto » (propose 8 poules de 4) → « Répartir » → Résultats / « Générer les scores ». On obtient un tableau principal de 16 **et** une consolante de 16 (8 troisièmes + 8 quatrièmes), sans barrage ni élimination de 2es.
+« Joueurs de test » **32** → Poules / « Répartition auto » (propose 8 poules de 4) → « Répartir » → Résultats / « Générer les scores ». On obtient un tableau principal de 16 (classement intégral : 4 colonnes de 8 matchs, 32 matchs, places 1 à 16) **et** une consolante de 16 (8 troisièmes + 8 quatrièmes), sans barrage ni élimination de 2es. Il n'y a pas de « Générer les scores » pour le tableau : le remplir, c'est cliquer les matchs un à un.
 
 Le mode dépend du **nombre de poules**, pas du nombre de joueurs (`computeBracketStructure(2n, n)`). Le mode `barrage` est bien plus rare qu'il n'y paraît — sur 2 à 12 poules, **seul 7 le déclenche** :
 
@@ -72,7 +72,7 @@ Tout l'état vit dans `App` (`index.html`, vers la ligne 438) en `React.useState
 | `ertt-players` | `[{ id, name, ranking }]` — `ranking` = points FFTT ou `null` (non classé) |
 | `ertt-pools` | `[{ id, name, playerIds }]` — une poule ne référence que des ids |
 | `ertt-results` | résultats de poule, `{ [poolMatchKey]: { sets: [[s1, s2], …] } }` |
-| `ertt-bracket-results` | tableau principal + consolante |
+| `ertt-bracket-results` | tableau principal (épine + sous-tableaux de classement) + consolante |
 | `ertt-barrage-results` | barrages |
 | `ertt-sets-to-win` | `2` ou `3` (défaut `3`) |
 | `ertt-screen` | écran actif |
@@ -92,6 +92,9 @@ Il n'existe **pas d'entité Tournoi** : un seul tournoi implicite, dont le nom e
 - `crossPoolCompare(a, b)` → comparateur inter-poules, **Art. II.109 FFTT** : par quotients (points-rencontre / rencontres jouées, puis manches, puis points-jeu) et non par totaux bruts, pour rester juste entre poules de 3 et de 4.
 - `computeBracketStructure(autoQualifiers, thirdsCount)` → `{ bracketSize, mode: 'direct' | 'barrage' | 'eliminate', barrageCount, eliminateCount }`. Décide s'il faut des barrages ou éliminer des 2es.
 - `buildSeedingPattern(size)` → ordre des têtes de série dans le tableau (tables FFTT pour 2/4/8/16/32, construction récursive au-delà). **Source unique** du placement, partagée par le tableau principal et la consolante : les deux doivent répartir à l'identique. Invariant : dans chaque paire d'un tour, la somme des seeds vaut `taille + 1`.
+- `buildPrincipalSeeds({ pools, players, results, barrageResults })` → `{ struct, bracketSize, seeds, firsts, keptSeconds, barrageWinners }`. **Source unique** de la composition du tableau principal (1ers, 2es retenus, vainqueurs de barrage à slot fixe), `seeds` déjà dans l'ordre des positions via `buildSeedingPattern`. Utilisé par `KnockoutScreen` et l'onglet « Classement final » de `BracketsScreen`.
+- `buildIntegralBracket(seeds, prefix, bracketResults)` → `{ groups, places, totalRounds, descendants }`. **Classement intégral** (feuilles FFTT « KO Clt Int ») : règle récursive unique — à chaque tour les vainqueurs continuent, les perdants tombent dans un sous-tableau parallèle qui joue la moitié basse des places. Sur 16 : 32 matchs, 4 par joueur, places 1 à 16. `groups` = un tour d'un sous-tableau (`{ startPlace, endPlace, size, round, matches }`), `places` = `{ place: joueur }`, `descendants` = ids en aval de chaque match (purge en cascade). Invariant : chaque tour contient exactement `taille / 2` matchs.
+- `placementLabel(group)` → `'Places 9 à 16'`, `'Places 5e/6e'`, `'Places 3e/4e'`, `'Finale'`.
 - `poolShortLabel(pool)` → `'Poule A'` → `'A'` (dérivé du vrai nom, pas de l'index).
 - `randomPlayers(count)` → joueurs de test (bouton « Joueurs de test » de la sidebar).
 
@@ -102,10 +105,10 @@ Il n'existe **pas d'entité Tournoi** : un seul tournoi implicite, dont le nom e
 2. **`ResultsScreen.jsx`** — round robin par poule (`poolMatches`, local au fichier), saisie set par set validée au blur (`isSetValid` : 11 contre 0-9, ou prolongation à +2, max 30). Saisir un seul score complète l'autre en traitant la valeur saisie comme celle du perdant. Bouton « Générer les scores » pour remplir tous les matchs restants (données de test).
 3. **`BracketsScreen.jsx`** — classements, lecture seule.
 4. **`BarrageScreen.jsx`** — matchs de barrage entre 3es, id `barrage-{poolIdA}-{poolIdB}` (reconstruit à l'identique dans `index.html` et `ConsolanteScreen.jsx` : toute modification de cette règle doit être répercutée aux trois endroits).
-5. **`KnockoutScreen`** (défini **inline dans `index.html`**, pas dans un fichier à part) — tableau principal, ids `{prefix}-r{round}-{n}` et `{prefix}-3rd` avec `prefix = 'principal'`.
-6. **`ConsolanteScreen.jsx`** — même construction de tableau avec `prefix = 'consolante'`, plus un placement manuel par drag & drop. Le bouton « Auto » applique `window.buildSeedingPattern` — le **même** placement que le tableau principal.
+5. **`KnockoutScreen`** (défini **inline dans `index.html`**, pas dans un fichier à part) — tableau principal en **classement intégral** : structure fournie par `buildIntegralBracket`, une colonne par tour, l'épine principale en haut de chaque colonne puis les sous-tableaux (« Places 9 à 16 », « Places 5 à 8 »…) par place croissante. Ids : `principal-r{round}-{n}` (épine) et `principal-3rd` (3e place) sont **inchangés** depuis l'élimination directe ; les sous-tableaux utilisent `principal-p{place}-r{round}-{n}`, `round` étant l'index global du tour. Effacer un résultat efface aussi ses `descendants` (les deux branches, vainqueur et perdant).
+6. **`ConsolanteScreen.jsx`** — tableau à **élimination directe** (pas encore de classement intégral) avec `prefix = 'consolante'`, ids `{prefix}-r{round}-{n}` et `{prefix}-3rd`, plus un placement manuel par drag & drop. Le bouton « Auto » applique `window.buildSeedingPattern` — le **même** placement que le tableau principal.
 
-La colonne finale du tableau principal et celle de la consolante partagent une même astuce de mise en page : un duplicata **invisible** du bloc « 3e place » au-dessus de la finale, pour que la finale reste centrée sur le point médian des demi-finales. Garder les deux écrans synchronisés.
+La colonne finale de la consolante garde une astuce de mise en page : un duplicata **invisible** du bloc « 3e place » au-dessus de la finale, pour que la finale reste centrée sur le point médian des demi-finales. Le tableau principal n'en a plus besoin : avec le classement intégral, sa colonne finale contient `taille / 2` matchs comme les autres. Passer la consolante en classement intégral = brancher `buildIntegralBracket` avec `prefix = 'consolante'` sur ses `seeds` manuels (les ids de l'épine et du 3e place restent compatibles).
 
 ### Nettoyages automatiques
 - Un `useEffect` de `App` purge les résultats de poule orphelins dès que la composition des poules change — ce qui libère aussi le verrou de format. Si des résultats disparaissent après une génération de données, c'est que les clés ou les ids sont incohérents.

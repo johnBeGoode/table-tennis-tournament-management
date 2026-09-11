@@ -342,6 +342,149 @@ const buildSeedingPattern = (size) => {
   return order;
 };
 
+// --- Tableau principal : qualifiés et placement --------------------------------
+// Source unique de la composition du tableau principal (anciennement dupliquée entre
+// KnockoutScreen et BracketsScreen). Renvoie les seeds dans l'ORDRE DES POSITIONS du
+// tableau (index = position, valeur = joueur ou null si le slot attend un barrage).
+//   1..n           = 1ers de poule, dans l'ordre des poules
+//   n+1..n+kept    = 2es retenus, dans l'ordre des poules
+//   suivants       = vainqueurs de barrage, slot FIXE par barrage (un barrage non joué
+//                    laisse son slot vide au lieu de décaler les autres)
+// Les joueurs renvoyés sont les objets de classement de poule ({ id, name, v, d, sf… }).
+const buildPrincipalSeeds = ({ pools, players, results, barrageResults }) => {
+  const standingsOf = (pool) => poolStandings(pool, players, results);
+  const n = pools.length;
+
+  const thirds = pools.map(pool => {
+    const st = standingsOf(pool);
+    const p = st[2];
+    return p ? { player: p, poolId: pool.id, v: p.v, d: p.d, sf: p.sf, sa: p.sa, pf: p.pf, pa: p.pa } : null;
+  }).filter(Boolean);
+
+  const struct = computeBracketStructure(n * 2, thirds.length);
+  const bracketSize = struct.bracketSize;
+
+  // Barrages : mêmes paires que BarrageScreen (id `barrage-{poolIdA}-{poolIdB}`)
+  const sortedThirds = [...thirds].sort(crossPoolCompare);
+  const eligible = struct.mode === 'barrage' ? sortedThirds.slice(0, struct.barrageCount * 2) : [];
+  const barrageMatches = [];
+  for (let i = 0; i < eligible.length; i += 2) {
+    const a = eligible[i], b = eligible[i + 1];
+    if (!a || !b) break;
+    barrageMatches.push({ id: `barrage-${a.poolId}-${b.poolId}`, p1: a.player, p2: b.player });
+  }
+  const barrageWinners = barrageMatches.map(m => {
+    const r = barrageResults?.[m.id];
+    if (!r) return null;
+    return r.winner === 1 ? r.p1 : r.p2;
+  });
+
+  const firsts  = pools.map(pool => standingsOf(pool)[0] || null).filter(Boolean);
+  const seconds = pools.map(pool => standingsOf(pool)[1] || null).filter(Boolean);
+
+  // Mode 'eliminate' : les moins bons 2es sortent (au mérite, quotients inter-poules) ;
+  // les retenus gardent l'ordre des poules pour le placement.
+  const keptSeconds = struct.mode === 'eliminate'
+    ? (() => {
+        const out = new Set([...seconds].sort(crossPoolCompare).slice(seconds.length - struct.eliminateCount).map(p => p.id));
+        return seconds.filter(p => !out.has(p.id));
+      })()
+    : seconds;
+
+  const seedMap = {};
+  firsts.forEach((p, i)         => { seedMap[i + 1] = p; });
+  keptSeconds.forEach((p, i)    => { seedMap[n + i + 1] = p; });
+  barrageWinners.forEach((p, i) => { if (p) seedMap[n + keptSeconds.length + i + 1] = p; });
+
+  const seeds = buildSeedingPattern(bracketSize).map(seedNum => seedMap[seedNum] || null);
+  return { struct, bracketSize, seeds, firsts, keptSeconds, barrageWinners, barrageMatches };
+};
+
+// --- Classement intégral (feuilles FFTT « KO Clt Int ») --------------------------
+// Règle unique, appliquée récursivement : à chaque tour, les vainqueurs continuent dans
+// leur sous-tableau, les perdants tombent dans un sous-tableau parallèle qui joue la
+// moitié basse des places. Sur 16 : 32 matchs, 4 par joueur, places 1 à 16 attribuées.
+// Chaque colonne (= tour) contient exactement N/2 matchs, tout le monde jouant à chaque tour.
+//
+// Ids de match — rétrocompatibles avec l'élimination directe d'avant :
+//   `{prefix}-r{round}-{n}`               épine principale (places 1..), inchangé
+//   `{prefix}-3rd`                        3e place (perdants des demies), inchangé
+//   `{prefix}-p{place}-r{round}-{n}`      sous-tableaux de classement (nouveau)
+// `round` est l'index GLOBAL du tour : même `r` = même colonne.
+//
+// Renvoie { groups, places, totalRounds, descendants } :
+//   groups      : [{ key, startPlace, endPlace, size, round, matches: [{ id, p1, p2 }] }]
+//   places      : { [place]: joueur } — le classement final, rempli au fil des résultats
+//   descendants : { [matchId]: [ids en aval] } — pour purger en cascade un résultat effacé
+const integralMatchId = (prefix, startPlace, size, round, idx) => {
+  if (startPlace === 1) return `${prefix}-r${round}-${idx}`;
+  if (startPlace === 3 && size === 2) return `${prefix}-3rd`;
+  return `${prefix}-p${startPlace}-r${round}-${idx}`;
+};
+
+const buildIntegralBracket = (seeds, prefix, bracketResults) => {
+  const groups = [];
+  const places = {};
+  const descendants = {};
+  const res = bracketResults || {};
+
+  const resolve = (matchId, role) => {
+    const r = res[matchId];
+    if (!r) return null;
+    const winner = r.winner === 1 ? r.p1 : r.p2;
+    const loser  = r.winner === 1 ? r.p2 : r.p1;
+    return role === 'winner' ? winner : loser;
+  };
+
+  // Renvoie le nœud { matches, winners, losers } du sous-tableau (arbre des tours)
+  const walk = (slots, startPlace, round) => {
+    const size = slots.length;
+    if (size === 1) { if (slots[0]) places[startPlace] = slots[0]; return null; }
+    const matches = [];
+    for (let i = 0; i < size / 2; i++) {
+      matches.push({ id: integralMatchId(prefix, startPlace, size, round, i + 1), p1: slots[2 * i], p2: slots[2 * i + 1] });
+    }
+    groups.push({ key: `p${startPlace}-r${round}`, startPlace, endPlace: startPlace + size - 1, size, round, matches });
+    return {
+      matches,
+      winners: walk(matches.map(m => resolve(m.id, 'winner')), startPlace,            round + 1),
+      losers:  walk(matches.map(m => resolve(m.id, 'loser')),  startPlace + size / 2, round + 1),
+    };
+  };
+
+  const root = walk(seeds, 1, 1);
+
+  // Dépendance réelle, pas « tout le tour suivant » : le match i d'un tour n'alimente
+  // que le match ⌊i/2⌋ de chacune des deux branches (vainqueurs et perdants).
+  const collect = (node, i, out) => {
+    [node.winners, node.losers].forEach(child => {
+      if (!child) return;
+      const j = Math.floor(i / 2);
+      out.push(child.matches[j].id);
+      collect(child, j, out);
+    });
+    return out;
+  };
+  const fill = (node) => {
+    if (!node) return;
+    node.matches.forEach((m, i) => { descendants[m.id] = collect(node, i, []); });
+    fill(node.winners);
+    fill(node.losers);
+  };
+  fill(root);
+  return { groups, places, totalRounds: Math.round(Math.log2(seeds.length)), descendants };
+};
+
+// Intitulé d'un sous-tableau de classement. L'épine principale (startPlace 1) au-delà
+// de la finale prend le nom du tour (« Quarts de finale »…), pas cet intitulé.
+const placementLabel = ({ startPlace, endPlace, size }) => {
+  if (size === 2) {
+    if (startPlace === 1) return 'Finale';
+    return `Places ${startPlace}e/${endPlace}e`;   // y compris la 3e place : « Places 3e/4e »
+  }
+  return `Places ${startPlace} à ${endPlace}`;
+};
+
 // Étiquette courte d'une poule, dérivée de son VRAI nom (« Poule A » → « A »).
 // Remplace l'ancien étiquetage par index, qui divergeait après renommage/suppression.
 const poolShortLabel = (pool) => ((pool.name || '').replace(/^poule\s*/i, '').trim() || pool.name || '?');
@@ -391,4 +534,4 @@ const randomPlayers = (count) => {
   });
 };
 
-Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });
+Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });
