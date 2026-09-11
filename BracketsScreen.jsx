@@ -1,7 +1,7 @@
-// BracketsScreen — Standings des poules (lecture seule, calculé depuis résultats)
-// Reçoit: theme, players, pools, results
+// BracketsScreen — Standings des poules et classements du tableau (lecture seule, calculé depuis résultats)
+// Reçoit: theme, players, pools, results, barrageResults, bracketResults
 
-const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
+const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracketResults }) => {
   const t = window.THEMES[theme];
   const [subTab, setSubTab] = React.useState('poules');
 
@@ -10,6 +10,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
       {[
         { id: 'poules',    label: 'Poules',        icon: 'fas fa-layer-group' },
         { id: 'principal', label: 'Tab principal', icon: 'fas fa-trophy' },
+        { id: 'final',     label: 'Classement final', icon: 'fas fa-ranking-star' },
       ].map(tb => (
         <button key={tb.id} onClick={() => setSubTab(tb.id)}
           style={{
@@ -100,6 +101,78 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults }) => {
             <span style={{ width: 1, height: 14, background: t.tableBorder }}></span>
             <span><i className="fas fa-layer-group" style={{ marginRight: 6, opacity: .5 }}></i><strong style={{ color: t.textPrimary }}>{pools.length}</strong> poule{pools.length > 1 ? 's' : ''}</span>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (subTab === 'final') {
+    // Places finales du tableau principal (classement intégral) : mêmes seeds et même
+    // structure que KnockoutScreen, via les helpers partagés — aucune logique dupliquée ici.
+    const { bracketSize, seeds } = window.buildPrincipalSeeds({ pools, players, results, barrageResults });
+    const { places, totalRounds } = window.buildIntegralBracket(seeds, 'principal', bracketResults || {});
+
+    const rows = Array.from({ length: bracketSize }, (_, i) => ({ place: i + 1, player: places[i + 1] || null }));
+    const settled = rows.filter(r => r.player).length;
+    const medal = { 1: '#FFA500', 2: '#9aa5b1', 3: '#c07a3a' };
+
+    return (
+      <div>
+        {renderTabs()}
+
+        <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <i className="fas fa-ranking-star" style={{ color: '#FFA500', fontSize: 18 }}></i>
+            <div>
+              <div style={{ fontSize: 11, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', fontWeight: 700 }}>Places attribuées</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: t.textPrimary }}>{settled} <span style={{ fontSize: 13, fontWeight: 500, color: t.textSecondary }}>sur {bracketSize}</span></div>
+            </div>
+          </div>
+          <div style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <i className="fas fa-sitemap" style={{ color: t.primary, fontSize: 18 }}></i>
+            <div>
+              <div style={{ fontSize: 11, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', fontWeight: 700 }}>Classement intégral</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary }}>Tableau de {bracketSize} · {totalRounds} matchs par joueur</div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, overflowX: 'auto', maxWidth: 420 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: t.tableHeaderBg }}>
+                {[
+                  { l: 'Place',  a: 'left', w: 64 },
+                  { l: 'Joueur', a: 'left'        },
+                ].map((h, i) => (
+                  <th key={i} style={{ width: h.w, padding: '9px 12px', textAlign: h.a, fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: `1px solid ${t.tableBorder}`, whiteSpace: 'nowrap' }}>
+                    {h.l}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ place, player }, idx) => {
+                const badge = medal[place];
+                return (
+                  <tr key={place} style={{ borderBottom: idx < rows.length - 1 ? `1px solid ${t.tableBorder}` : 'none', background: player && badge ? `${badge}0f` : 'transparent', opacity: player ? 1 : 0.55 }}>
+                    <td style={{ padding: '9px 12px' }}>
+                      <span style={{
+                        width: 26, height: 26, borderRadius: '50%',
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 12, fontWeight: 800,
+                        background: player ? (badge || t.primary) : t.pageBg,
+                        color: player ? '#fff' : t.textSecondary,
+                      }}>{place}</span>
+                    </td>
+                    <td style={{ padding: '9px 12px', fontSize: 14, fontWeight: 600, color: player ? t.textPrimary : t.textSecondary, whiteSpace: 'nowrap', fontStyle: player ? 'normal' : 'italic' }}>
+                      {player ? player.name : 'À déterminer'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
     );

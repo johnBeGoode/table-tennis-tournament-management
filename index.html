@@ -20,14 +20,14 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=9"></script>
+<script type="text/babel" src="AppShell.jsx?v=12"></script>
 <script type="text/babel" src="PoolsScreen.jsx?v=15"></script>
-<script type="text/babel" src="BracketsScreen.jsx?v=13"></script>
+<script type="text/babel" src="BracketsScreen.jsx?v=15"></script>
 <script type="text/babel" src="ResultsScreen.jsx?v=11"></script>
 <script type="text/babel">
-// KnockoutScreen — Tableau dynamique (n poules)
-// Taille du bracket = prochaine puissance de 2 >= pools.length * 2
-// Rounds générés automatiquement
+// KnockoutScreen — Tableau principal dynamique (n poules), classement intégral
+// Taille du bracket = prochaine puissance de 2 >= pools.length * 2 (AppShell.computeBracketStructure)
+// Structure des tours et sous-tableaux : AppShell.buildIntegralBracket
 
 const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracketResults, onUpdateBracketResults, type }) => {
   const t = window.THEMES[theme];
@@ -53,9 +53,6 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
   React.useEffect(() => {
     if (modal && autoWinner) saveBtnRef.current?.focus();
   }, [autoWinner, modal?.matchId]);
-
-  // Classement d'une poule — délégué au helper partagé (AppShell)
-  const poolStandings = (pool) => window.poolStandings(pool, players, results);
 
   if (pools.length < 2) {
     return (
@@ -104,137 +101,22 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     );
   }
 
-  // Structure adaptative — logique partagée (AppShell.computeBracketStructure)
-  const poolCount = pools.length;
-  const autoQualifiers = poolCount * 2;
+  // Composition du tableau — source unique (AppShell.buildPrincipalSeeds) :
+  // 1ers, 2es retenus, vainqueurs de barrage, placés selon buildSeedingPattern.
+  const { bracketSize, seeds } = window.buildPrincipalSeeds({ pools, players, results, barrageResults });
 
-  // 3es de poule (utiles pour décider du mode)
-  const thirdPlacePlayers = pools.map((pool) => {
-    const st = poolStandings(pool);
-    const p = st[2] || null;
-    if (!p) return null;
-    const stats = st.find(s => s.id === p.id);
-    return { player: p, poolId: pool.id, v: stats?.v || 0, d: stats?.d || 0, sf: stats?.sf || 0, sa: stats?.sa || 0, pf: stats?.pf || 0, pa: stats?.pa || 0 };
-  }).filter(Boolean);
+  // Classement intégral (AppShell.buildIntegralBracket) : les perdants de chaque tour
+  // retombent dans un sous-tableau parallèle. Un slot vide en R1 signifie un barrage
+  // non joué, PAS un bye : le tableau est exactement rempli, personne n'avance d'office.
+  const { groups, totalRounds, descendants } = window.buildIntegralBracket(seeds, prefix, bracketResults);
 
-  const struct = window.computeBracketStructure(autoQualifiers, thirdPlacePlayers.length);
-  const principalBracketSize = struct.bracketSize;
-  const barrageCount = struct.barrageCount;
-
-  // Reconstruction des matchs de barrage (mêmes paires que BarrageScreen)
-  const computeBarrageMatches = () => {
-    const sortedDesc = [...thirdPlacePlayers].sort(window.crossPoolCompare);
-    const eligible = struct.mode === 'barrage' ? sortedDesc.slice(0, barrageCount * 2) : [];
-
-    const matches = [];
-    for (let i = 0; i < eligible.length; i += 2) {
-      const a = eligible[i], b = eligible[i + 1];
-      if (!a || !b) break;
-      matches.push({ id: `barrage-${a.poolId}-${b.poolId}`, p1: a.player, p2: b.player });
-    }
-    return matches;
-  };
-
-  const barrageMatches = computeBarrageMatches();
-
-  // Vainqueurs des barrages
-  const barrageWinners = barrageMatches.map(m => {
-    const r = barrageResults?.[m.id];
-    if (!r) return null;
-    return r.winner === 1 ? r.p1 : r.p2;
-  });
-
-  // Têtes de série protégées : l'ordre des poules fait le numéro de TS.
-  // 1er de la poule A = TS 1, 1er de la poule B = TS 2, … puis les 2es dans ce même ordre.
-  // Les quotients ne servent PAS ici (ils départagent à l'intérieur d'une poule) ;
-  // `firstRaw` / `secondRaw` sont déjà construits en parcourant `pools`.
-  const sortByPerf = (arr) => [...arr].sort(window.crossPoolCompare);
-  const firstRaw  = pools.map(pool => { const st = poolStandings(pool); const p = st[0]; if (!p) return null; return { ...p, ...st.find(s=>s.id===p.id) }; }).filter(Boolean);
-  const secondRaw = pools.map(pool => { const st = poolStandings(pool); const p = st[1]; if (!p) return null; return { ...p, ...st.find(s=>s.id===p.id) }; }).filter(Boolean);
-
-  // En mode 'eliminate' : retirer les moins bons 2es du tableau principal (vers consolante).
-  // Le choix des éliminés reste au mérite (quotients inter-poules) — c'est une question de
-  // classement, pas de placement ; les retenus gardent l'ordre des poules.
-  const keptSeconds = struct.mode === 'eliminate'
-    ? (() => {
-        const out = new Set(sortByPerf(secondRaw).slice(secondRaw.length - struct.eliminateCount).map(p => p.id));
-        return secondRaw.filter(p => !out.has(p.id));
-      })()
-    : secondRaw;
-
-  const bracketSize = principalBracketSize;
-
-  // Construction des têtes de série
-  const seeds = Array(bracketSize).fill(null);
-
-  // KnockoutScreen ne gère que le tableau principal — la consolante a son propre écran (ConsolanteScreen)
-  {
-    const n = pools.length;
-
-    // Placement standard FFTT — source unique (AppShell.buildSeedingPattern),
-    // partagée avec la consolante pour garantir la même répartition.
-    const ffttOrder = window.buildSeedingPattern(bracketSize);
-
-    // Seeds : 1..n = 1ers · n+1..n+kept = 2es retenus · suivant = vainqueurs barrage
-    // Chaque barrage garde un slot de seed FIXE (pas de compactage) : un barrage
-    // non joué laisse son slot vide au lieu de décaler les autres vainqueurs.
-    const seedMap = {};
-    firstRaw.forEach((p, i)     => { seedMap[i + 1] = p; });
-    keptSeconds.forEach((p, i)  => { seedMap[n + i + 1] = p; });
-    barrageWinners.forEach((p, i) => { if (p) seedMap[n + keptSeconds.length + i + 1] = p; });
-
-    ffttOrder.forEach((seedNum, pos) => {
-      seeds[pos] = seedMap[seedNum] || null;
-    });
-  }
-
-  // Résolution d'un résultat — pas d'auto-avancement (bye) : un slot vide en R1
-  // signifie un barrage non joué, PAS un vrai bye (le bracket est exactement rempli).
-  const resolveMatch = (match, role, isR1 = false) => {
-    if (!match) return null;
-    const r = bracketResults[match.id];
-    if (r) return role === 'winner' ? (r.winner === 1 ? r.p1 : r.p2) : (r.winner === 1 ? r.p2 : r.p1);
-    return null;
-  };
-
-  // Round 1 : pairings seed[2i] vs seed[2i+1] (positions adjacentes dans l'ordre FFTT)
-  const r1 = [];
-  for (let i = 0; i < bracketSize / 2; i++) {
-    r1.push({
-      id: `${prefix}-r1-${i + 1}`,
-      p1: seeds[2 * i],
-      p2: seeds[2 * i + 1],
-    });
-  }
-
-  // Génération automatique des rounds suivants
-  const allRounds = [r1];
-  let roundNum = 2;
-  while (allRounds[allRounds.length - 1].length > 1) {
-    const prev = allRounds[allRounds.length - 1];
-    const isR1 = allRounds.length === 1; // true seulement pour générer R2 depuis R1
-    const newRound = [];
-    for (let i = 0; i < prev.length; i += 2) {
-      const matchA = prev[i];
-      const matchB = prev[i + 1] || null;
-      newRound.push({
-        id: `${prefix}-r${roundNum}-${i / 2 + 1}`,
-        p1: resolveMatch(matchA, 'winner', isR1),
-        p2: resolveMatch(matchB, 'winner', isR1),
-      });
-    }
-    allRounds.push(newRound);
-    roundNum++;
-  }
-
-  // Match pour la 3e place (entre les perdants des demi-finales)
-  const semiRound = allRounds.length >= 2 ? allRounds[allRounds.length - 2] : null;
-  const thirdPlaceMatch = (semiRound && semiRound.length === 2) ? {
-    id: `${prefix}-3rd`,
-    label: '3e place',
-    p1: resolveMatch(semiRound[0], 'loser', false),
-    p2: resolveMatch(semiRound[1], 'loser', false),
-  } : null;
+  // Une colonne par tour ; dans la colonne, l'épine principale en haut puis les
+  // sous-tableaux par place croissante (« Places 5 à 8 », « Places 9 à 12 »…).
+  const columns = Array.from({ length: totalRounds }, (_, i) => ({
+    round: i + 1,
+    groups: groups.filter(g => g.round === i + 1).sort((a, b) => a.startPlace - b.startPlace),
+  }));
+  const matchesPerRound = bracketSize / 2;
 
   // Nom du round selon position dans le bracket
   const roundLabel = (roundIdx, total) => {
@@ -264,16 +146,25 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     setModal(null);
   };
 
+  // Effacer un résultat efface aussi tout ce qui en découle : avec le classement
+  // intégral, un match alimente DEUX branches (vainqueur et perdant), et un résultat
+  // orphelin afficherait des scores sur des joueurs qui ne sont plus là.
   const clearResult = (matchId, e) => {
     e.stopPropagation();
-    onUpdateBracketResults(prev => { const n = { ...prev }; delete n[matchId]; return n; });
+    onUpdateBracketResults(prev => {
+      const n = { ...prev };
+      delete n[matchId];
+      (descendants[matchId] || []).forEach(id => { delete n[id]; });
+      return n;
+    });
   };
 
   // Composants visuels
-  const PlayerRow = ({ player, isWinner, sc }) => (
+  // `gold` : le vainqueur de la finale a une coupe en or, les autres la couleur de l'écran
+  const PlayerRow = ({ player, isWinner, sc, gold }) => (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: isWinner ? `${accentColor}15` : 'transparent', opacity: player ? 1 : 0.35 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-        {isWinner && <i className="fas fa-trophy" style={{ color: accentColor, fontSize: 10 }}></i>}
+        {isWinner && <i className="fas fa-trophy" style={{ color: gold ? '#FFA500' : accentColor, fontSize: gold ? 12 : 10 }}></i>}
         <span style={{ fontSize: 12, fontWeight: isWinner ? 700 : 500, color: t.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 130 }}>
           {player ? player.name : '—'}
         </span>
@@ -298,13 +189,13 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
             {r && <button onClick={e => clearResult(match.id, e)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: isHighlight ? 'rgba(255,255,255,.7)' : t.textSecondary, fontSize: 10, padding: 0 }}><i className="fas fa-times"></i></button>}
           </div>
         )}
-        <PlayerRow player={match.p1} isWinner={winner === 1} sc={r?.score1} />
+        <PlayerRow player={match.p1} isWinner={winner === 1} sc={r?.score1} gold={isHighlight} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px' }}>
           <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
           <span style={{ fontSize: 9, fontWeight: 700, color: t.textSecondary, opacity: 0.5, letterSpacing: '.5px' }}>VS</span>
           <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
         </div>
-        <PlayerRow player={match.p2} isWinner={winner === 2} sc={r?.score2} />
+        <PlayerRow player={match.p2} isWinner={winner === 2} sc={r?.score2} gold={isHighlight} />
       </div>
     );
   };
@@ -313,72 +204,76 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     <div style={{ fontSize: 10, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10, whiteSpace: 'nowrap' }}>{label}</div>
   );
 
-  const Arrow = ({ count }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-around', padding: '28px 6px 0', flexShrink: 0 }}>
-      {Array.from({ length: count }).map((_, i) => (
-        <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-          <div style={{ width: 20, height: 1, background: t.tableBorder }}></div>
-        </div>
-      ))}
+  // Intitulé d'un sous-tableau de classement, au-dessus de son bloc de matchs
+  const GroupLabel = ({ label, accent }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0 8px' }}>
+      <span style={{ fontSize: 10, fontWeight: 700, color: accent ? accentColor : t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', whiteSpace: 'nowrap' }}>{label}</span>
+      <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
     </div>
   );
 
-  const totalRounds = allRounds.length;
+  // Encadré d'un bloc de matchs de classement
+  const boxStyle = { padding: 14, border: `1.5px solid ${t.tableBorder}`, borderRadius: t.cardRadius, background: '#e9ebee' };
+
+  // Un groupe = un tour d'un sous-tableau. L'épine principale (places 1..) garde le
+  // nom du tour en en-tête de colonne ; les sous-tableaux portent leur intitulé
+  // (« Places 9 à 16 »…) et leurs matchs terminaux leur étiquette (« Places 5e/6e »).
+  const renderGroup = (g) => {
+    const isSpine = g.startPlace === 1;
+    const isFinal = isSpine && g.size === 2;
+    const terminal = g.size === 2;
+    const label = window.placementLabel(g);
+    return (
+      <div key={g.key} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {!isSpine && !terminal && <GroupLabel label={label} />}
+        {g.matches.map(m => (
+          <MatchCard key={m.id} match={m} isHighlight={isFinal}
+            customLabel={terminal && !isFinal ? label : undefined} />
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ background: accentColor, color: '#fff', borderRadius: 6, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>{title}</span>
         <span style={{ fontSize: 12, color: t.textSecondary }}>
-          {pools.length} poules · tableau de {bracketSize} · {totalRounds} tour{totalRounds > 1 ? 's' : ''}
+          {pools.length} poules · tableau de {bracketSize} · classement intégral · {totalRounds} tour{totalRounds > 1 ? 's' : ''} · {matchesPerRound * totalRounds} matchs ({totalRounds} par joueur)
         </span>
         <span style={{ fontSize: 12, color: t.textSecondary }}>· Cliquez sur un match pour entrer le résultat</span>
       </div>
 
-      <div style={{ display: 'flex', gap: 0, alignItems: 'stretch', overflowX: 'auto', paddingBottom: 12 }}>
-        {allRounds.map((round, rIdx) => {
-          const isLastRound = rIdx === totalRounds - 1;
-          const label = roundLabel(rIdx, totalRounds);
-          const nextCount = isLastRound ? 0 : Math.ceil(round.length / 2);
-
-          if (isLastRound) {
-            // Colonne finale : finale + 3e place
-            const finalMatch = round[0];
-            // Bloc 3e place — dupliqué en version invisible au-dessus de la finale
-            // pour contrebalancer sa hauteur : ainsi le centre visuel de la finale
-            // reste aligné sur le point médian des 2 demi-finales, quelle que soit
-            // la présence ou non du match de 3e place.
-            const thirdPlaceBlock = thirdPlaceMatch && (
-              <div>
-                <div style={{ borderTop: `2px dashed ${t.textSecondary}`, marginBottom: 20, opacity: 0.35 }}></div>
-                <MatchCard match={thirdPlaceMatch} isHighlight={false} customLabel="3e place" />
-              </div>
-            );
-            return (
-              <React.Fragment key={rIdx}>
-                <Arrow count={nextCount || 1} />
-                <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, alignSelf: 'stretch', minWidth: 185 }}>
-                  <ColHeader label={label} />
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 20 }}>
-                    {thirdPlaceMatch && <div style={{ visibility: 'hidden' }}>{thirdPlaceBlock}</div>}
-                    <MatchCard match={finalMatch} isHighlight={true} />
-                    {thirdPlaceBlock}
-                  </div>
-                </div>
-              </React.Fragment>
-            );
-          }
-
+      {/* Une colonne par tour, N/2 matchs par colonne : tout ce qui est dans une
+          même colonne se joue en même temps. Dans chaque colonne, l'épine principale
+          (8es → finale) en haut, puis, nettement détachés et encadrés, les sous-tableaux de classement. */}
+      <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', overflowX: 'auto', paddingBottom: 12 }}>
+        {columns.map((col, cIdx) => {
+          const spine = col.groups.filter(g => g.startPlace === 1);
+          const placement = col.groups.filter(g => g.startPlace !== 1);
           return (
-            <React.Fragment key={rIdx}>
-              {rIdx > 0 && <Arrow count={nextCount} />}
-              <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-                <ColHeader label={label} />
-                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-around', gap: 10 }}>
-                  {round.map(m => <MatchCard key={m.id} match={m} isHighlight={false} />)}
-                </div>
+            <div key={col.round} style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, minWidth: 185 }}>
+              <ColHeader label={roundLabel(cIdx, totalRounds)} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                {spine.map(renderGroup)}
               </div>
-            </React.Fragment>
+              {/* Matchs de classement, bien détachés de l'épine (grand espace). Chaque
+                  sous-tableau encore ouvert (« Places 5 à 8 », « Places 9 à 12 »…) a son
+                  propre encadré ; les matchs de place terminaux (3e/4e, 5e/6e…) partagent
+                  un seul encadré. */}
+              {placement.length > 0 && (
+                <div style={{ marginTop: 64, display: 'flex', flexDirection: 'column', gap: 18 }}>
+                  {placement.filter(g => g.size > 2).map(g => (
+                    <div key={g.key} style={boxStyle}>{renderGroup(g)}</div>
+                  ))}
+                  {placement.some(g => g.size === 2) && (
+                    <div style={{ ...boxStyle, display: 'flex', flexDirection: 'column', gap: 18 }}>
+                      {placement.filter(g => g.size === 2).map(renderGroup)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
@@ -528,7 +423,7 @@ const App = () => {
 
   const screenMap = {
     poules:     <PoolsScreen    theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateSetsToWin={setSetsToWin} onUpdatePlayers={setPlayers} onUpdatePools={setPools} />,
-    brackets:   <BracketsScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} />,
+    brackets:   <BracketsScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} />,
     resultats:  <ResultsScreen  theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateResults={setResults} />,
     barrage:    <BarrageScreen  theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} setsToWin={setsToWin} onUpdateBarrageResults={setBarrageResults} />,
     principal:  <KnockoutScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} type="principal" />,
