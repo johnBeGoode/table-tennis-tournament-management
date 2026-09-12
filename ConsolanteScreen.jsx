@@ -298,7 +298,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
         {isWinner && <i className="fas fa-trophy" style={{ color: gold ? '#FFA500' : accentColor, fontSize: gold ? 12 : 10 }}></i>}
         <span style={{ fontSize: 12, fontWeight: isWinner ? 700 : 500, color: t.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 130 }}>
-          {player ? player.name : (isBye ? '— Bye —' : '—')}
+          {player ? player.name : (isBye ? '— Exempt —' : '—')}
         </span>
       </div>
       {sc !== undefined && sc !== '' && (
@@ -311,7 +311,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     const r = bracketResults[match.id];
     const winner = r?.winner;
     const canPlay = match.p1 && match.p2;
-    // Bye (structurel, à n'importe quel tour) : le match ne se joue pas, l'autre passe
+    // Exempt (bye structurel, à n'importe quel tour) : le match ne se joue pas, l'autre passe
     const isByeMatch = match.bye1 || match.bye2;
     return (
       <div onClick={() => canPlay && openModal(match.id, match.p1, match.p2)}
@@ -507,7 +507,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
           {/* Grille de slots */}
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10 }}>
-              Bracket — {bracketSize} slots ({seeds.filter(Boolean).length} placés, {bracketSize - seeds.filter(Boolean).length} byes)
+              Bracket — {bracketSize} slots ({seeds.filter(Boolean).length} placés, {bracketSize - seeds.filter(Boolean).length} exempt{bracketSize - seeds.filter(Boolean).length > 1 ? 's' : ''})
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
               {seeds.map((player, idx) => {

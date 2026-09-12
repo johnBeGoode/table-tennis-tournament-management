@@ -47,7 +47,6 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
   const barrageMatchCount = struct.barrageCount;
   const sortedDesc = [...thirdPlacePlayers].sort(window.crossPoolCompare);
   const barrageEligible = struct.mode === 'barrage' ? sortedDesc.slice(0, barrageMatchCount * 2) : [];
-  const directConsolante = thirdPlacePlayers.filter(x => !barrageEligible.find(e => e.poolId === x.poolId));
 
   // Construction des matchs de barrage (paires)
   const barrageMatches = [];
@@ -57,7 +56,7 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
     if (!a || !b) break;
     barrageMatches.push({
       id: `barrage-${a.poolId}-${b.poolId}`,
-      label: `${a.poolLabel}3 vs ${b.poolLabel}3`,
+      label: `Match n°${i / 2 + 1}`,
       p1: a.player,
       p2: b.player,
     });
@@ -229,7 +228,7 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
             const canPlay = match.p1 && match.p2;
             return (
               <div key={match.id} onClick={() => canPlay && openModal(match.id, match.p1, match.p2)}
-                style={{ background: t.cardBg, border: `1.5px solid ${t.tableBorder}`, borderRadius: t.cardRadius, overflow: 'hidden', minWidth: 210, flex: '1 1 210px', cursor: canPlay ? 'pointer' : 'default', boxShadow: t.cardShadow }}>
+                style={{ background: t.cardBg, border: `1.5px solid ${t.tableBorder}`, borderRadius: t.cardRadius, overflow: 'hidden', width: 240, flex: '0 0 auto', cursor: canPlay ? 'pointer' : 'default', boxShadow: t.cardShadow }}>
                 <div style={{ padding: '6px 14px', background: t.tableHeaderBg, borderBottom: `1px solid ${t.tableBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: accentColor, textTransform: 'uppercase', letterSpacing: '.4px' }}>{match.label}</span>
                   {r && <button onClick={e => clearResult(match.id, e)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: t.textSecondary, fontSize: 10, padding: 0, opacity: 0.5 }}><i className="fas fa-times"></i></button>}
@@ -252,22 +251,6 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
         </div>
       </div>
 
-      {/* 3es directement en consolante */}
-      {directConsolante.length > 0 && (
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10 }}>
-            3es directement en consolante
-          </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {directConsolante.map(({ player, poolLabel }) => (
-              <div key={poolLabel} style={{ background: t.cardBg, border: `1px solid ${t.tableBorder}`, borderRadius: 8, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#f96b6b' }}>{poolLabel}3</span>
-                <span style={{ fontSize: 13, color: t.textPrimary }}>{player.name}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Modal */}
       {modal && (
