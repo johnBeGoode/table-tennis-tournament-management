@@ -109,10 +109,13 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
   if (subTab === 'final') {
     // Places finales du tableau principal (classement intégral) : mêmes seeds et même
     // structure que KnockoutScreen, via les helpers partagés — aucune logique dupliquée ici.
-    const { bracketSize, seeds } = window.buildPrincipalSeeds({ pools, players, results, barrageResults });
-    const { places, totalRounds } = window.buildIntegralBracket(seeds, 'principal', bracketResults || {});
+    const { struct, bracketSize, seeds, seedList } = window.buildPrincipalSeeds({ pools, players, results, barrageResults });
+    const { places, totalRounds } = window.buildIntegralBracket(seeds, 'principal', bracketResults || {}, { byes: struct.mode === 'byes' });
 
-    const rows = Array.from({ length: bracketSize }, (_, i) => ({ place: i + 1, player: places[i + 1] || null }));
+    // En mode byes, un exempté ne « bat » personne : les places au-delà des qualifiés
+    // ne sont jamais attribuées, on ne les affiche pas.
+    const capacity = struct.mode === 'byes' ? seedList.length : bracketSize;
+    const rows = Array.from({ length: capacity }, (_, i) => ({ place: i + 1, player: places[i + 1] || null }));
     const settled = rows.filter(r => r.player).length;
     const medal = { 1: '#FFA500', 2: '#9aa5b1', 3: '#c07a3a' };
 
@@ -125,14 +128,16 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
             <i className="fas fa-ranking-star" style={{ color: '#FFA500', fontSize: 18 }}></i>
             <div>
               <div style={{ fontSize: 11, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', fontWeight: 700 }}>Places attribuées</div>
-              <div style={{ fontSize: 18, fontWeight: 900, color: t.textPrimary }}>{settled} <span style={{ fontSize: 13, fontWeight: 500, color: t.textSecondary }}>sur {bracketSize}</span></div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: t.textPrimary }}>{settled} <span style={{ fontSize: 13, fontWeight: 500, color: t.textSecondary }}>sur {capacity}</span></div>
             </div>
           </div>
           <div style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
             <i className="fas fa-sitemap" style={{ color: t.primary, fontSize: 18 }}></i>
             <div>
               <div style={{ fontSize: 11, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', fontWeight: 700 }}>Classement intégral</div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary }}>Tableau de {bracketSize} · {totalRounds} matchs par joueur</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary }}>
+                Tableau de {bracketSize}{struct.mode === 'byes' ? ` · ${struct.byeCount} exempté${struct.byeCount > 1 ? 's' : ''} de 1er tour` : ` · ${totalRounds} matchs par joueur`}
+              </div>
             </div>
           </div>
         </div>
@@ -202,64 +207,19 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
 
     const allStats = buildStats();
 
-    // Quotients inter-poules (Art. II.109 FFTT) — pas de totaux bruts entre poules de tailles différentes
-    const toQuotientShape = (s) => ({ v: s.v, d: s.d, sf: s.setsFor, sa: s.setsAgainst, pf: s.ptsFor, pa: s.ptsAgainst });
-    const sortByPerf = (arr) => [...arr].sort((a, b) => window.crossPoolCompare(toQuotientShape(a), toQuotientShape(b)));
-
-    // Têtes de série : ordre des poules, pas les quotients. 1er de la poule A = TS 1,
-    // 1er de la poule B = TS 2, etc., puis les 2es dans ce même ordre de poules.
-    // `allStats` est bâti en parcourant `pools`, il est donc déjà dans cet ordre.
-    const firsts  = allStats.filter(s => s.poolRank === 1);
-    const seconds = allStats.filter(s => s.poolRank === 2);
-
-    // Logique partagée (AppShell.computeBracketStructure)
-    const autoQualifiers = n * 2;
-
-    const thirdPlayers = pools.map(pool => {
-      const tStats = allStats.filter(s => s.poolId === pool.id && s.poolRank === 3)[0];
-      return tStats ? { player: tStats, poolId: pool.id } : null;
-    }).filter(Boolean);
-
-    const struct = window.computeBracketStructure(autoQualifiers, thirdPlayers.length);
-
-    // Mode 'eliminate' : retirer les `eliminateCount` moins bons 2es du tableau principal.
-    // Savoir *lesquels* sortent est une question de mérite → quotients inter-poules ;
-    // les retenus reprennent ensuite l'ordre des poules pour le placement.
-    let keptSeconds = seconds;
-    if (struct.mode === 'eliminate') {
-      const cut = struct.eliminateCount;
-      const out = new Set(sortByPerf(seconds).slice(Math.max(0, seconds.length - cut)).map(s => s.id));
-      keptSeconds = seconds.filter(s => !out.has(s.id));
-    }
-
-    const sortedThird = [...thirdPlayers].sort((a, b) => window.crossPoolCompare(toQuotientShape(a.player), toQuotientShape(b.player)));
-    const eligible = struct.mode === 'barrage' ? sortedThird.slice(0, struct.barrageCount * 2) : [];
-    const barrageWinners = [];
-    for (let i = 0; i < eligible.length; i += 2) {
-      const a = eligible[i], b = eligible[i + 1];
-      if (!a || !b) break;
-      const matchId = `barrage-${a.poolId}-${b.poolId}`;
-      const r = (barrageResults || {})[matchId];
-      if (r) {
-        const winnerId = r.winner === 1 ? r.p1.id : r.p2.id;
-        const winnerStats = allStats.find(s => s.id === winnerId);
-        if (winnerStats) barrageWinners.push(winnerStats);
-      } else {
-        barrageWinners.push(null); // barrage non joué
-      }
-    }
-
-    const QUALIFIED = firsts.length + keptSeconds.length + barrageWinners.length;
-
-    // Construction du classement final par groupes
-    // 1..n : 1ers   |   n+1..2n : 2es   |   2n+1..QUALIFIED : vainqueurs barrage
-    const ranked = [
-      ...firsts,
-      ...keptSeconds,
-      ...barrageWinners.map(s => s
-        || { id: `pending-${Math.random()}`, name: 'Vainqueur barrage à venir', poolName: '—', poolColor: t.textSecondary, poolRank: 3, v: 0, d: 0, setsFor: 0, setsAgainst: 0, ptsFor: 0, ptsAgainst: 0, pending: true }
-      ),
-    ];
+    // Composition et numérotation des TS : source unique (AppShell.buildPrincipalSeeds) —
+    // ordre des poules en direct/barrage, mérite + protection des poules en mode byes.
+    // On ne fait ici que rhabiller chaque TS avec ses stats de poule (poule · rang, V, D).
+    const { struct, seedList } = window.buildPrincipalSeeds({ pools, players, results, barrageResults });
+    const statsById = {};
+    allStats.forEach(s => { statsById[s.id] = s; });
+    const ranked = seedList.map(e => {
+      const s = e.player && statsById[e.player.id];
+      return s
+        ? { ...s, seed: e.seed, bye: e.bye }
+        : { id: `pending-${e.seed}`, seed: e.seed, bye: false, pending: true, name: 'Vainqueur barrage à venir', poolName: '—', poolColor: t.textSecondary, poolRank: 3, v: 0, d: 0, setsFor: 0, setsAgainst: 0, ptsFor: 0, ptsAgainst: 0 };
+    });
+    const QUALIFIED = ranked.length;
 
     const totalPlayed = allStats.reduce((acc, s) => acc + s.played, 0);
     const hasResults = totalPlayed > 0;
@@ -284,7 +244,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
               <div style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary }}>
                 {struct.mode === 'direct' && '1ers → 2es (tableau direct)'}
                 {struct.mode === 'barrage' && `1ers → 2es → ${struct.barrageCount} vainqueur${struct.barrageCount > 1 ? 's' : ''} barrage`}
-                {struct.mode === 'eliminate' && `1ers → ${keptSeconds.length} meilleurs 2es (${struct.eliminateCount} 2e${struct.eliminateCount > 1 ? 's' : ''} éliminé${struct.eliminateCount > 1 ? 's' : ''})`}
+                {struct.mode === 'byes' && `1ers puis 2es au mérite · ${struct.byeCount} exempté${struct.byeCount > 1 ? 's' : ''} de 1er tour`}
               </div>
             </div>
           </div>
@@ -297,7 +257,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
             <thead>
               <tr style={{ background: t.tableHeaderBg }}>
                 {[
-                  { l: 'Rang',   a: 'left',   w: 64 },
+                  { l: 'TS',     a: 'left',   w: 64 },
                   { l: 'Joueur', a: 'left'          },
                   { l: 'Poule',  a: 'left',   w: 116 },
                   { l: 'V',      a: 'center', w: 48 },
@@ -310,8 +270,8 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
               </tr>
             </thead>
             <tbody>
-              {ranked.slice(0, QUALIFIED).map((s, idx) => {
-                const rank = idx + 1;
+              {ranked.map((s, idx) => {
+                const rank = s.seed;
                 const qualified = hasResults;
 
                 return (
@@ -330,6 +290,12 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
                       </td>
                       <td style={{ padding: '9px 12px', fontSize: 14, fontWeight: 600, color: t.textPrimary, whiteSpace: 'nowrap' }}>
                         {s.name}
+                        {s.bye && (
+                          <span title="Exempté de 1er tour : entre directement au 2e tour"
+                            style={{ marginLeft: 8, background: '#20bf6b1a', color: '#20bf6b', borderRadius: t.tagRadius, padding: '2px 7px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                            <i className="fas fa-forward" style={{ marginRight: 4, fontSize: 9 }}></i>Exempt 1er tour
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: '9px 12px' }}>
                         <span style={{

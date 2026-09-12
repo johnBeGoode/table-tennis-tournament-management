@@ -21,14 +21,6 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, d: stats?.d || 0, sf: stats?.sf || 0, sa: stats?.sa || 0, pf: stats?.pf || 0, pa: stats?.pa || 0 };
   }).filter(Boolean);
 
-  const secondsAll = pools.map((pool) => {
-    const st = poolStandings(pool);
-    const p = st[1] || null;
-    if (!p) return null;
-    const stats = st.find(s => s.id === p.id);
-    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, d: stats?.d || 0, sf: stats?.sf || 0, sa: stats?.sa || 0, pf: stats?.pf || 0, pa: stats?.pa || 0 };
-  }).filter(Boolean);
-
   // Structure du tableau principal — logique partagée (AppShell.computeBracketStructure)
   const struct = window.computeBracketStructure(autoQualifiers, thirds.length);
 
@@ -36,9 +28,6 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   const sortedDesc = [...thirds].sort(window.crossPoolCompare);
   const barrageEligible = struct.mode === 'barrage' ? sortedDesc.slice(0, struct.barrageCount * 2) : [];
   const directConsolante = thirds.filter(x => !barrageEligible.find(e => e.poolId === x.poolId));
-
-  const sortedSecondsAsc = [...secondsAll].sort((a, b) => window.crossPoolCompare(b, a));
-  const eliminatedSeconds = struct.mode === 'eliminate' ? sortedSecondsAsc.slice(0, struct.eliminateCount) : [];
 
   // Index de la poule dans `pools` — c'est lui qui fait le numéro de TS à
   // l'intérieur d'une catégorie (cf. « Calcul des têtes de série » plus bas).
@@ -63,18 +52,13 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   }).filter(Boolean);
 
   const directConsolanteEntries = directConsolante.map(x => ({ player: x.player, poolId: x.poolId, label: `3e direct (${x.poolLabel})` }));
-  // Le mérite décide QUELS 2es sont éliminés (quotients inter-poules), mais pas leur
-  // numéro de TS : comme dans le tableau principal, on repasse en ordre de poules.
-  const eliminatedPoolIds = new Set(eliminatedSeconds.map(x => x.poolId));
-  const eliminatedSecondsEntries = secondsAll
-    .filter(x => eliminatedPoolIds.has(x.poolId))
-    .map(x => ({ player: x.player, poolId: x.poolId, label: `2e éliminé (${x.poolLabel})` }));
+  // Les 1ers et 2es sont toujours qualifiés pour le principal (mode 'byes' : exemptions
+  // de 1er tour, plus d'élimination) : la consolante ne reçoit que 3es et 4es.
 
   // Aucun match de poule joué → pas de joueurs éligibles
   const totalPoolMatchesPlayed = Object.keys(results || {}).filter(k => k.startsWith('pool-')).length;
 
   const eligibleListRaw = totalPoolMatchesPlayed === 0 ? [] : [
-    ...eliminatedSecondsEntries,
     ...barrageLosers,
     ...directConsolanteEntries,
     ...fourths,
@@ -90,12 +74,11 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   // Trier par performance ici cassait cet appariement et donnait un tableau qui
   // paraissait distribué au hasard.
   //
-  // Priorité de catégorie : 2e éliminé > perdant barrage > 3e direct > 4e
+  // Priorité de catégorie : perdant barrage > 3e direct > 4e
   const categoryRank = (label) => {
-    if (label?.startsWith('2e éliminé')) return 0;
-    if (label?.startsWith('Perdant barrage')) return 1;
-    if (label?.startsWith('3e direct')) return 2;
-    return 3;
+    if (label?.startsWith('Perdant barrage')) return 0;
+    if (label?.startsWith('3e direct')) return 1;
+    return 2;
   };
 
   // `eligibleListRaw` est déjà groupé par catégorie et, dans chaque catégorie, en

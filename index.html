@@ -20,13 +20,14 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=14"></script>
+<script type="text/babel" src="AppShell.jsx?v=15"></script>
 <script type="text/babel" src="PoolsScreen.jsx?v=18"></script>
-<script type="text/babel" src="BracketsScreen.jsx?v=15"></script>
+<script type="text/babel" src="BracketsScreen.jsx?v=16"></script>
 <script type="text/babel" src="ResultsScreen.jsx?v=13"></script>
 <script type="text/babel">
 // KnockoutScreen — Tableau principal dynamique (n poules), classement intégral
-// Taille du bracket = prochaine puissance de 2 >= pools.length * 2 (AppShell.computeBracketStructure)
+// Composition, taille et numérotation : AppShell.buildPrincipalSeeds (mode 'byes' =
+// exemptés de 1er tour, mode 'barrage' = slots en attente des barrages)
 // Structure des tours et sous-tableaux : AppShell.buildIntegralBracket
 
 const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracketResults, onUpdateBracketResults, type }) => {
@@ -102,13 +103,16 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
   }
 
   // Composition du tableau — source unique (AppShell.buildPrincipalSeeds) :
-  // 1ers, 2es retenus, vainqueurs de barrage, placés selon buildSeedingPattern.
-  const { bracketSize, seeds } = window.buildPrincipalSeeds({ pools, players, results, barrageResults });
+  // 1ers, 2es, vainqueurs de barrage, placés selon buildSeedingPattern.
+  const { struct, bracketSize, seeds } = window.buildPrincipalSeeds({ pools, players, results, barrageResults });
 
   // Classement intégral (AppShell.buildIntegralBracket) : les perdants de chaque tour
-  // retombent dans un sous-tableau parallèle. Un slot vide en R1 signifie un barrage
-  // non joué, PAS un bye : le tableau est exactement rempli, personne n'avance d'office.
-  const { groups, totalRounds, descendants } = window.buildIntegralBracket(seeds, prefix, bracketResults);
+  // retombent dans un sous-tableau parallèle. En mode 'byes', un slot vide en R1 est un
+  // exempté : l'adversaire passe d'office (même mécanique que la consolante). En mode
+  // 'barrage', un slot vide est un barrage NON JOUÉ : rien n'avance — l'option ne doit
+  // donc être passée qu'en mode 'byes'.
+  const bracketOptions = { byes: struct.mode === 'byes' };
+  const { groups, totalRounds, descendants } = window.buildIntegralBracket(seeds, prefix, bracketResults, bracketOptions);
 
   // Une colonne par tour ; dans la colonne, l'épine principale en haut puis les
   // sous-tableaux par place croissante (« Places 5 à 8 », « Places 9 à 12 »…).
@@ -116,16 +120,18 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     round: i + 1,
     groups: groups.filter(g => g.round === i + 1).sort((a, b) => a.startPlace - b.startPlace),
   }));
-  const matchesPerRound = bracketSize / 2;
+  // Matchs réellement jouables : ceux sans bye. Les drapeaux bye1/bye2 sont connus dès la
+  // construction, résultats ou pas (un bye se propage sans dépendre des scores).
+  const playableMatches = groups.reduce((acc, g) => acc + g.matches.filter(m => !m.bye1 && !m.bye2).length, 0);
   const hasPendingMatch = groups.some(g => g.matches.some(m => m.p1 && m.p2 && !bracketResults[m.id]));
 
   // Données de test : scores aléatoires sur tous les matchs restants (les résultats
   // déjà saisis sont conservés). Tour par tour, puisque chaque tour dépend du précédent.
-  // Même bouton que la consolante ; ici pas de byes (un slot vide = barrage en attente).
+  // Même bouton que la consolante ; byes uniquement en mode 'byes' (cf. bracketOptions).
   const generateScores = () => {
     onUpdateBracketResults(prev => {
       const next = { ...prev };
-      let b = window.buildIntegralBracket(seeds, prefix, next);
+      let b = window.buildIntegralBracket(seeds, prefix, next, bracketOptions);
       for (let round = 1; round <= b.totalRounds; round++) {
         b.groups.filter(g => g.round === round).forEach(g => g.matches.forEach(m => {
           if (!m.p1 || !m.p2 || next[m.id]) return;
@@ -133,7 +139,7 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
           const loserSets = Math.floor(Math.random() * SETS_TO_WIN);
           next[m.id] = { p1: m.p1, p2: m.p2, winner, score1: winner === 1 ? SETS_TO_WIN : loserSets, score2: winner === 2 ? SETS_TO_WIN : loserSets };
         }));
-        b = window.buildIntegralBracket(seeds, prefix, next);
+        b = window.buildIntegralBracket(seeds, prefix, next, bracketOptions);
       }
       return next;
     });
@@ -182,12 +188,12 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
 
   // Composants visuels
   // `gold` : le vainqueur de la finale a une coupe en or, les autres la couleur de l'écran
-  const PlayerRow = ({ player, isWinner, sc, gold }) => (
+  const PlayerRow = ({ player, isWinner, sc, isBye, gold }) => (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: isWinner ? `${accentColor}15` : 'transparent', opacity: player ? 1 : 0.35 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
         {isWinner && <i className="fas fa-trophy" style={{ color: gold ? '#FFA500' : accentColor, fontSize: gold ? 12 : 10 }}></i>}
         <span style={{ fontSize: 12, fontWeight: isWinner ? 700 : 500, color: t.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 130 }}>
-          {player ? player.name : '—'}
+          {player ? player.name : (isBye ? '— Exempt —' : '—')}
         </span>
       </div>
       {sc !== undefined && sc !== '' && (
@@ -200,9 +206,11 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
     const r = bracketResults[match.id];
     const winner = r?.winner;
     const canPlay = match.p1 && match.p2;
+    // Exempté (mode byes, à n'importe quel tour) : le match ne se joue pas, l'autre passe
+    const isByeMatch = match.bye1 || match.bye2;
     return (
       <div onClick={() => canPlay && openModal(match.id, match.p1, match.p2)}
-        style={{ background: t.cardBg, border: `1.5px solid ${isHighlight ? accentColor : t.tableBorder}`, borderRadius: t.cardRadius, overflow: 'hidden', cursor: canPlay ? 'pointer' : 'default', boxShadow: isHighlight ? `0 0 0 3px ${accentColor}25` : t.cardShadow, minWidth: 170, userSelect: 'none' }}>
+        style={{ background: t.cardBg, border: `1.5px solid ${isHighlight ? accentColor : t.tableBorder}`, borderRadius: t.cardRadius, overflow: 'hidden', cursor: canPlay ? 'pointer' : 'default', boxShadow: isHighlight ? `0 0 0 3px ${accentColor}25` : t.cardShadow, minWidth: 170, userSelect: 'none', opacity: isByeMatch ? 0.6 : 1 }}>
         {(isHighlight || r || customLabel) && (
           <div style={{ padding: '4px 10px', background: isHighlight ? accentColor : t.tableHeaderBg, borderBottom: `1px solid ${t.tableBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             {(isHighlight || customLabel) && <span style={{ fontSize: 10, fontWeight: 700, color: isHighlight ? '#fff' : t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px' }}>{isHighlight ? (type === 'principal' ? 'Finale' : 'Finale cons.') : customLabel}</span>}
@@ -210,13 +218,13 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
             {r && <button onClick={e => clearResult(match.id, e)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: isHighlight ? 'rgba(255,255,255,.7)' : t.textSecondary, fontSize: 10, padding: 0 }}><i className="fas fa-times"></i></button>}
           </div>
         )}
-        <PlayerRow player={match.p1} isWinner={winner === 1} sc={r?.score1} gold={isHighlight} />
+        <PlayerRow player={match.p1} isWinner={winner === 1} sc={r?.score1} isBye={match.bye1} gold={isHighlight} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px' }}>
           <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
           <span style={{ fontSize: 9, fontWeight: 700, color: t.textSecondary, opacity: 0.5, letterSpacing: '.5px' }}>VS</span>
           <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
         </div>
-        <PlayerRow player={match.p2} isWinner={winner === 2} sc={r?.score2} gold={isHighlight} />
+        <PlayerRow player={match.p2} isWinner={winner === 2} sc={r?.score2} isBye={match.bye2} gold={isHighlight} />
       </div>
     );
   };
@@ -260,7 +268,10 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ background: accentColor, color: '#fff', borderRadius: 6, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>{title}</span>
         <span style={{ fontSize: 12, color: t.textSecondary }}>
-          {pools.length} poules · tableau de {bracketSize} · classement intégral · {totalRounds} tour{totalRounds > 1 ? 's' : ''} · {matchesPerRound * totalRounds} matchs ({totalRounds} par joueur)
+          {pools.length} poules · tableau de {bracketSize}
+          {struct.mode === 'byes' && ` · ${struct.byeCount} exempté${struct.byeCount > 1 ? 's' : ''} de 1er tour`}
+          {' '}· classement intégral · {totalRounds} tour{totalRounds > 1 ? 's' : ''} · {playableMatches} match{playableMatches > 1 ? 's' : ''}
+          {struct.mode !== 'byes' && ` (${totalRounds} par joueur)`}
         </span>
         <span style={{ fontSize: 12, color: t.textSecondary }}>· Cliquez sur un match pour entrer le résultat</span>
         <div style={{ marginLeft: 'auto' }}>
@@ -350,8 +361,8 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
 Object.assign(window, { KnockoutScreen });
 
 </script>
-<script type="text/babel" src="BarrageScreen.jsx?v=8"></script>
-<script type="text/babel" src="ConsolanteScreen.jsx?v=13"></script>
+<script type="text/babel" src="BarrageScreen.jsx?v=9"></script>
+<script type="text/babel" src="ConsolanteScreen.jsx?v=14"></script>
 
 <script type="text/babel">
 const DEFAULT_SCREEN = /*EDITMODE-BEGIN*/"consolante"/*EDITMODE-END*/;
@@ -393,7 +404,19 @@ const App = () => {
     });
     return migrated;
   });
-  const [bracketResults, setBracketResults] = React.useState(() => loadState('ertt-bracket-results', {}));
+  // Migration one-shot (schéma 2) : le mode 'byes' a remplacé 'eliminate'. Un tournoi qui
+  // était en 'eliminate' change de taille de tableau (8→16, 16→32) et de composition de
+  // consolante : les résultats de tableau saisis avant ne correspondent plus aux matchs
+  // portant les mêmes ids, et buildIntegralBracket propagerait leurs copies de joueurs.
+  // On les jette, une fois, seulement si le tournoi courant est en mode 'byes'.
+  const BRACKET_SCHEMA = 2;
+  const [bracketResults, setBracketResults] = React.useState(() => {
+    const raw = loadState('ertt-bracket-results', {});
+    if (loadState('ertt-bracket-schema', 1) >= BRACKET_SCHEMA) return raw;
+    const { struct } = window.buildPrincipalSeeds({ pools, players, results, barrageResults: {} });
+    return struct.mode === 'byes' ? {} : raw;
+  });
+  React.useEffect(() => { saveState('ertt-bracket-schema', BRACKET_SCHEMA); }, []);
   const [barrageResults, setBarrageResults] = React.useState(() => loadState('ertt-barrage-results', {}));
   const [setsToWin, setSetsToWin] = React.useState(() => loadState('ertt-sets-to-win', 3));
   // Verrou des poules : posé par la répartition auto, levé uniquement par

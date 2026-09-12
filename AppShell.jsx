@@ -281,23 +281,23 @@ const crossPoolCompare = (a, b) => {
   return 0; // égalité persistante — départage par tirage au sort (hors scope du tri auto)
 };
 
-// Structure du tableau principal — source unique (anciennement dupliquée dans 4 fichiers).
-// Essaye les puissances de 2 en descendant depuis nextPow2(qualifiés) :
-//   missing == 0           → tableau direct
-//   missing*2 <= nb de 3es → organiser `missing` barrages (chaque barrage consomme 2 troisièmes)
-//   missing < 0            → éliminer |missing| moins bons 2es
-//   missing*2 > nb de 3es  → essayer la taille inférieure
+// Structure du tableau principal — source unique.
+//   B = nextPow2(qualifiés), missing = B − qualifiés
+//   missing == 0           → 'direct'  : tableau exactement rempli (2, 4, 8, 16 poules)
+//   missing*2 <= nb de 3es → 'barrage' : `missing` barrages entre 3es, chacun consomme
+//                            2 troisièmes (7, 13, 14, 15 poules)
+//   sinon                  → 'byes'    : tous les 1ers et 2es sont qualifiés, les `missing`
+//                            meilleurs (TS 1..k) sont exemptés de 1er tour (3, 5, 6, 9 à 12 poules)
+// Le tableau n'est jamais réduit : plus aucun 2e n'est éliminé.
 const computeBracketStructure = (autoQualifiers, thirdsCount) => {
   const nextPow2 = (n) => { let b = 1; while (b < n) b *= 2; return b; };
-  let size = nextPow2(autoQualifiers);
-  while (size >= 2) {
-    const missing = size - autoQualifiers;
-    if (missing === 0) return { bracketSize: size, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
-    if (missing > 0 && missing * 2 <= thirdsCount) return { bracketSize: size, mode: 'barrage', barrageCount: missing, eliminateCount: 0 };
-    if (missing < 0) return { bracketSize: size, mode: 'eliminate', barrageCount: 0, eliminateCount: -missing };
-    size = size / 2;
-  }
-  return { bracketSize: 2, mode: 'direct', barrageCount: 0, eliminateCount: 0 };
+  const base = { barrageCount: 0, byeCount: 0 };
+  if (!(autoQualifiers >= 2)) return { ...base, bracketSize: 2, mode: 'direct' };   // 0 poule
+  const bracketSize = nextPow2(autoQualifiers);
+  const missing = bracketSize - autoQualifiers;
+  if (missing === 0) return { ...base, bracketSize, mode: 'direct' };
+  if (missing * 2 <= thirdsCount) return { ...base, bracketSize, mode: 'barrage', barrageCount: missing };
+  return { ...base, bracketSize, mode: 'byes', byeCount: missing };
 };
 
 // Placement manuel de la consolante (drag & drop). Contrairement au reste, cette
@@ -306,8 +306,9 @@ const computeBracketStructure = (autoQualifiers, thirdsCount) => {
 // Le suffixe de version est incrémenté dès que le placement change — que ce soit
 // buildSeedingPattern ou la numérotation des têtes de série de la consolante : un
 // placement construit avec l'ancienne règle doit être jeté, pas rechargé.
-const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v3';
-const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2'];
+// v4 : la catégorie « 2e éliminé » a disparu (mode 'byes' à la place d'eliminate).
+const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v4';
+const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2', 'consolante-seeds-v3'];
 
 const clearConsolanteSeeds = () => {
   try {
@@ -343,34 +344,43 @@ const buildSeedingPattern = (size) => {
 };
 
 // --- Tableau principal : qualifiés et placement --------------------------------
-// Source unique de la composition du tableau principal (anciennement dupliquée entre
-// KnockoutScreen et BracketsScreen). Renvoie les seeds dans l'ORDRE DES POSITIONS du
-// tableau (index = position, valeur = joueur ou null si le slot attend un barrage).
-//   1..n           = 1ers de poule, dans l'ordre des poules
-//   n+1..n+kept    = 2es retenus, dans l'ordre des poules
-//   suivants       = vainqueurs de barrage, slot FIXE par barrage (un barrage non joué
-//                    laisse son slot vide au lieu de décaler les autres)
+// Source unique de la composition du tableau principal. Renvoie :
+//   seeds    : joueurs dans l'ORDRE DES POSITIONS du tableau (via buildSeedingPattern) ;
+//              null = slot vide (barrage en attente en mode 'barrage', bye en mode 'byes')
+//   seedList : une entrée par numéro de TS, dans l'ordre : { seed, player, poolId,
+//              poolRank (1 | 2 | 3 = vainqueur de barrage), bye } ; player = null tant
+//              qu'un barrage n'est pas joué ; bye = exempté de 1er tour
+// Numérotation des TS :
+//   modes 'direct' / 'barrage' — ORDRE DES POULES : 1er de A = TS1, …, puis les 2es dans
+//     le même ordre, puis les vainqueurs de barrage (slot FIXE par barrage : un barrage non
+//     joué laisse son slot vide au lieu de décaler les autres). Comme le pattern apparie
+//     TS i et TS B+1−i, un 1er ne rencontre jamais son 2e au 1er tour.
+//   mode 'byes' — les seeds vides 2n+1..B donnent mécaniquement un bye aux TS 1..k : les
+//     petits numéros doivent donc aller aux meilleurs. 1ers triés par crossPoolCompare sur
+//     TS1..n ; 2es placés par un glouton de TS 2n vers TS n+1 : l'adversaire de 1er tour de
+//     TS j est TS B+1−j ; si c'est un 1er, on prend le moins bon 2e restant qui n'est pas de
+//     sa poule, sinon le moins bon restant. Les meilleurs 2es gardent ainsi les petits
+//     numéros (exemptés quand k > n) et un 2e ne rencontre jamais son 1er. Jamais bloquant :
+//     à j = n+1 l'adversaire est TS B−n > n (pas un 1er), et pour j ≥ n+2 il reste ≥ 2 candidats.
 // Les joueurs renvoyés sont les objets de classement de poule ({ id, name, v, d, sf… }).
 const buildPrincipalSeeds = ({ pools, players, results, barrageResults }) => {
-  const standingsOf = (pool) => poolStandings(pool, players, results);
   const n = pools.length;
+  const standings = pools.map(pool => ({ pool, st: poolStandings(pool, players, results) }));
+  // poolStandings ne renvoie pas poolId : on le capture ici.
+  const atRank = (rank) => standings
+    .map(({ pool, st }) => (st[rank] ? { player: st[rank], poolId: pool.id } : null))
+    .filter(Boolean);
+  const firstEntries = atRank(0), secondEntries = atRank(1), thirdEntries = atRank(2);
+  const byMerit = (a, b) => crossPoolCompare(a.player, b.player);
 
-  const thirds = pools.map(pool => {
-    const st = standingsOf(pool);
-    const p = st[2];
-    return p ? { player: p, poolId: pool.id, v: p.v, d: p.d, sf: p.sf, sa: p.sa, pf: p.pf, pa: p.pa } : null;
-  }).filter(Boolean);
-
-  const struct = computeBracketStructure(n * 2, thirds.length);
+  const struct = computeBracketStructure(n * 2, thirdEntries.length);
   const bracketSize = struct.bracketSize;
 
-  // Barrages : mêmes paires que BarrageScreen (id `barrage-{poolIdA}-{poolIdB}`)
-  const sortedThirds = [...thirds].sort(crossPoolCompare);
-  const eligible = struct.mode === 'barrage' ? sortedThirds.slice(0, struct.barrageCount * 2) : [];
+  // Barrages (mode 'barrage') : mêmes paires que BarrageScreen (id `barrage-{poolIdA}-{poolIdB}`)
+  const eligible = struct.mode === 'barrage' ? [...thirdEntries].sort(byMerit).slice(0, struct.barrageCount * 2) : [];
   const barrageMatches = [];
-  for (let i = 0; i < eligible.length; i += 2) {
+  for (let i = 0; i + 1 < eligible.length; i += 2) {
     const a = eligible[i], b = eligible[i + 1];
-    if (!a || !b) break;
     barrageMatches.push({ id: `barrage-${a.poolId}-${b.poolId}`, p1: a.player, p2: b.player });
   }
   const barrageWinners = barrageMatches.map(m => {
@@ -379,25 +389,40 @@ const buildPrincipalSeeds = ({ pools, players, results, barrageResults }) => {
     return r.winner === 1 ? r.p1 : r.p2;
   });
 
-  const firsts  = pools.map(pool => standingsOf(pool)[0] || null).filter(Boolean);
-  const seconds = pools.map(pool => standingsOf(pool)[1] || null).filter(Boolean);
+  const seedMap = {};   // numéro de TS → { player, poolId, poolRank }
+  if (struct.mode === 'byes') {
+    [...firstEntries].sort(byMerit).forEach((e, i) => { seedMap[i + 1] = { ...e, poolRank: 1 }; });
+    const remaining = [...secondEntries].sort(byMerit);          // du meilleur au moins bon
+    for (let j = n + secondEntries.length; j > n; j--) {
+      const opp = seedMap[bracketSize + 1 - j];                   // adversaire de 1er tour (undefined = vide)
+      let idx = remaining.length - 1;                             // le moins bon restant
+      if (opp?.poolRank === 1) {
+        while (idx > 0 && remaining[idx].poolId === opp.poolId) idx--;
+      }
+      seedMap[j] = { ...remaining.splice(idx, 1)[0], poolRank: 2 };
+    }
+  } else {
+    firstEntries.forEach((e, i)   => { seedMap[i + 1] = { ...e, poolRank: 1 }; });
+    secondEntries.forEach((e, i)  => { seedMap[n + i + 1] = { ...e, poolRank: 2 }; });
+    barrageWinners.forEach((p, i) => { if (p) seedMap[n + secondEntries.length + i + 1] = { player: p, poolId: null, poolRank: 3 }; });
+  }
 
-  // Mode 'eliminate' : les moins bons 2es sortent (au mérite, quotients inter-poules) ;
-  // les retenus gardent l'ordre des poules pour le placement.
-  const keptSeconds = struct.mode === 'eliminate'
-    ? (() => {
-        const out = new Set([...seconds].sort(crossPoolCompare).slice(seconds.length - struct.eliminateCount).map(p => p.id));
-        return seconds.filter(p => !out.has(p.id));
-      })()
-    : seconds;
+  const qualifiedCount = n + secondEntries.length + barrageMatches.length;
+  const seedList = Array.from({ length: qualifiedCount }, (_, i) => {
+    const seed = i + 1, e = seedMap[seed];
+    return {
+      seed,
+      player: e?.player || null,
+      poolId: e?.poolId ?? null,
+      poolRank: e?.poolRank ?? 3,
+      // Exempté : en mode byes, la TS d'en face (B+1−seed) n'existe pas.
+      bye: struct.mode === 'byes' && !seedMap[bracketSize + 1 - seed],
+    };
+  });
 
-  const seedMap = {};
-  firsts.forEach((p, i)         => { seedMap[i + 1] = p; });
-  keptSeconds.forEach((p, i)    => { seedMap[n + i + 1] = p; });
-  barrageWinners.forEach((p, i) => { if (p) seedMap[n + keptSeconds.length + i + 1] = p; });
-
-  const seeds = buildSeedingPattern(bracketSize).map(seedNum => seedMap[seedNum] || null);
-  return { struct, bracketSize, seeds, firsts, keptSeconds, barrageWinners, barrageMatches };
+  const seeds = buildSeedingPattern(bracketSize).map(seedNum => seedMap[seedNum]?.player || null);
+  const firsts = firstEntries.map(e => e.player), seconds = secondEntries.map(e => e.player);
+  return { struct, bracketSize, seeds, seedList, firsts, seconds, barrageWinners, barrageMatches };
 };
 
 // Purge des résultats de barrage périmés. Un résultat n'est valable que si le
@@ -432,10 +457,12 @@ const pruneBarrageResults = (barrageResults, { pools, players, results }) => {
 //   `{prefix}-p{place}-r{round}-{n}`      sous-tableaux de classement (nouveau)
 // `round` est l'index GLOBAL du tour : même `r` = même colonne.
 //
-// Options : { byes: true } (consolante) — un slot vide du 1er tour est un bye
-// STRUCTUREL : il ne sera jamais rempli, l'adversaire passe d'office et le bye se
-// propage dans la branche des perdants (bye contre bye = bye). Sans cette option
-// (tableau principal), un slot vide est un barrage en attente : rien n'avance.
+// Options : { byes: true } — un slot vide du 1er tour est un bye STRUCTUREL : il ne
+// sera jamais rempli, l'adversaire passe d'office et le bye se propage dans la branche
+// des perdants (bye contre bye = bye, les places du bas restent vides). Utilisé par la
+// consolante (jamais pleine) et par le tableau principal en mode 'byes' (exemptés).
+// Sans cette option (principal en mode 'barrage'), un slot vide est un barrage en
+// attente : rien n'avance. Ne JAMAIS passer byes:true en mode 'barrage'.
 //
 // Renvoie { groups, places, totalRounds, descendants } :
 //   groups      : [{ key, startPlace, endPlace, size, round, matches: [{ id, p1, p2, bye1, bye2 }] }]
@@ -466,8 +493,11 @@ const buildIntegralBracket = (seeds, prefix, bracketResults, options = {}) => {
     }
     const s1 = m.bye1 ? BYE : m.p1, s2 = m.bye2 ? BYE : m.p2;
     if (isBye(s1) && isBye(s2)) return BYE;
-    if (isBye(s1) && s2) return role === 'winner' ? s2 : BYE;
-    if (isBye(s2) && s1) return role === 'winner' ? s1 : BYE;
+    // Face à un bye, le perdant est TOUJOURS un bye, même si l'adversaire n'est pas
+    // encore connu : la branche des perdants est ainsi figée dès la construction et le
+    // nombre de matchs jouables ne bouge pas au fil des résultats.
+    if (isBye(s1)) return role === 'winner' ? (s2 || null) : BYE;
+    if (isBye(s2)) return role === 'winner' ? (s1 || null) : BYE;
     return null;   // adversaire en attente (ou match non joué)
   };
 

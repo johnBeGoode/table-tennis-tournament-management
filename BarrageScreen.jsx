@@ -1,5 +1,5 @@
-// BarrageScreen — Matchs de barrage entre 3es de poule
-// Complète le tableau principal si les 1ers+2es ne suffisent pas à atteindre 16 joueurs
+// BarrageScreen — Matchs de barrage entre 3es de poule (mode 'barrage')
+// En mode 'byes', l'écran liste les exemptés de 1er tour ; en mode 'direct', rien à faire.
 
 const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToWin = 3, onUpdateBarrageResults }) => {
   const t = window.THEMES[theme];
@@ -10,7 +10,6 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
 
   // SETS_TO_WIN suit le réglage de l'écran Poules (2 ou 3 sets gagnants)
   const SETS_TO_WIN = setsToWin;
-  const nextPow2 = (n) => { let b = 1; while (b < n) b *= 2; return b; };
   const accentColor = '#f79025';
 
   const autoWinner = (() => {
@@ -41,27 +40,14 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
     return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, d: stats?.d || 0, sf: stats?.sf || 0, sa: stats?.sa || 0, pf: stats?.pf || 0, pa: stats?.pa || 0 };
   }).filter(Boolean);
 
-  // 2es de chaque poule (utiles pour le cas "éliminer les moins bons 2es")
-  const secondPlacePlayers = pools.map((pool) => {
-    const standings = poolStandings(pool);
-    const p = standings[1] || null;
-    if (!p) return null;
-    const stats = standings.find(s => s.id === p.id);
-    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, d: stats?.d || 0, sf: stats?.sf || 0, sa: stats?.sa || 0, pf: stats?.pf || 0, pa: stats?.pa || 0 };
-  }).filter(Boolean);
-
-  // Structure du tableau principal — logique partagée (AppShell.computeBracketStructure)
-  const struct = window.computeBracketStructure(autoQualifiers, thirdPlacePlayers.length);
+  // Structure du tableau principal et numérotation des TS — source unique (AppShell.buildPrincipalSeeds)
+  const { struct, seedList } = window.buildPrincipalSeeds({ pools, players, results, barrageResults });
   const BRACKET_SIZE = struct.bracketSize;
   const missingSpots = struct.barrageCount;
   const barrageMatchCount = struct.barrageCount;
   const sortedDesc = [...thirdPlacePlayers].sort(window.crossPoolCompare);
   const barrageEligible = struct.mode === 'barrage' ? sortedDesc.slice(0, barrageMatchCount * 2) : [];
   const directConsolante = thirdPlacePlayers.filter(x => !barrageEligible.find(e => e.poolId === x.poolId));
-
-  // 2es éliminés (les moins bons) si applicable
-  const sortedSecondsAsc = [...secondPlacePlayers].sort((a, b) => window.crossPoolCompare(b, a));
-  const eliminatedSeconds = struct.mode === 'eliminate' ? sortedSecondsAsc.slice(0, struct.eliminateCount) : [];
 
   // Construction des matchs de barrage (paires)
   const barrageMatches = [];
@@ -99,6 +85,18 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
     onUpdateBarrageResults(prev => { const n = { ...prev }; delete n[matchId]; return n; });
   };
 
+  // Vérifie si tous les matchs de poules ont été joués
+  let totalPoolMatches = 0, playedPoolMatches = 0;
+  pools.forEach(pool => {
+    const ids = pool.playerIds;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        totalPoolMatches++;
+        if (results[window.poolMatchKey(pool.id, ids[i], ids[j])]) playedPoolMatches++;
+      }
+    }
+  });
+
   // Cas : aucun barrage nécessaire (tableau direct)
   if (struct.mode === 'direct') {
     return (
@@ -113,36 +111,50 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
     );
   }
 
-  // Cas : éliminer les moins bons 2es (le tableau principal est trop petit pour tous les 2es)
-  if (struct.mode === 'eliminate') {
+  // Cas : exemptions de 1er tour (pas assez de 3es pour des barrages ; tous les 1ers et 2es qualifiés)
+  if (struct.mode === 'byes') {
+    const k = struct.byeCount;
+    const poolsComplete = playedPoolMatches === totalPoolMatches;
+    const poolLabelById = {};
+    pools.forEach(p => { poolLabelById[p.id] = window.poolShortLabel(p); });
+    const exempted = seedList.filter(e => e.bye && e.player);
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ background: accentColor, color: '#fff', borderRadius: 6, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>Barrage</span>
           <span style={{ fontSize: 12, color: t.textSecondary }}>
-            Tableau principal de {BRACKET_SIZE} · {struct.eliminateCount} 2e{struct.eliminateCount > 1 ? 's' : ''} éliminé{struct.eliminateCount > 1 ? 's' : ''} · aucun barrage
+            Tableau principal de {BRACKET_SIZE} · {k} exempté{k > 1 ? 's' : ''} de 1er tour · aucun barrage
           </span>
         </div>
         <div style={{ padding: '32px 24px', background: t.cardBg, border: `1.5px solid ${t.tableBorder}`, borderRadius: t.cardRadius }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>
             <i className="fas fa-info-circle" style={{ color: accentColor, marginRight: 8 }}></i>
-            Tableau principal réduit à {BRACKET_SIZE}
+            Tableau principal de {BRACKET_SIZE} avec exemptions
           </div>
           <div style={{ fontSize: 13, color: t.textSecondary, lineHeight: 1.6, marginBottom: 18 }}>
-            Avec {pools.length} poules il y aurait {autoQualifiers} qualifiés directs, mais il n'y a pas assez de 3es pour combler un tableau de {nextPow2(autoQualifiers)}.
-            Le tableau est donc ramené à {BRACKET_SIZE} : les {struct.eliminateCount} moins bons 2es sont éliminés du tableau principal.
+            Avec {pools.length} poules, les 1ers et 2es ({autoQualifiers} joueurs) sont tous qualifiés mais ne remplissent pas
+            un tableau de {BRACKET_SIZE}, et il n'y a pas assez de 3es pour organiser {BRACKET_SIZE - autoQualifiers} barrages.
+            Les {k} meilleurs qualifiés (1ers puis 2es, au mérite inter-poules) sont donc exemptés de 1er tour :
+            le tableau retombe sur {BRACKET_SIZE / 2} joueurs au tour suivant. Les 3es et 4es vont directement en consolante.
           </div>
           <div style={{ fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10 }}>
-            2es éliminés
+            Exemptés de 1er tour
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {eliminatedSeconds.map(({ player, poolLabel }) => (
-              <div key={poolLabel} style={{ background: t.tableHeaderBg, border: `1px solid ${t.tableBorder}`, borderRadius: 8, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#f96b6b' }}>{poolLabel}2</span>
-                <span style={{ fontSize: 13, color: t.textPrimary }}>{player.name}</span>
-              </div>
-            ))}
-          </div>
+          {poolsComplete ? (
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {exempted.map(({ seed, player, poolId, poolRank }) => (
+                <div key={seed} style={{ background: t.tableHeaderBg, border: `1px solid ${t.tableBorder}`, borderRadius: 8, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: t.textSecondary, opacity: .6 }}>TS{seed}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#20bf6b' }}>{poolLabelById[poolId]}{poolRank}</span>
+                  <span style={{ fontSize: 13, color: t.textPrimary }}>{player.name}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: t.textSecondary, fontStyle: 'italic' }}>
+              Connus une fois tous les matchs de poules joués ({playedPoolMatches}/{totalPoolMatches}).
+            </div>
+          )}
         </div>
       </div>
     );
@@ -156,18 +168,6 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
       </div>
     );
   }
-
-  // Vérifie si tous les matchs de poules ont été joués
-  let totalPoolMatches = 0, playedPoolMatches = 0;
-  pools.forEach(pool => {
-    const ids = pool.playerIds;
-    for (let i = 0; i < ids.length; i++) {
-      for (let j = i + 1; j < ids.length; j++) {
-        totalPoolMatches++;
-        if (results[window.poolMatchKey(pool.id, ids[i], ids[j])]) playedPoolMatches++;
-      }
-    }
-  });
 
   if (playedPoolMatches < totalPoolMatches) {
     return (
