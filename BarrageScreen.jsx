@@ -6,6 +6,7 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
   const [modal, setModal] = React.useState(null);
   const [score, setScore] = React.useState({ p1: '', p2: '' });
   const firstInputRef = React.useRef(null);
+  const saveBtnRef = React.useRef(null);
 
   // SETS_TO_WIN suit le réglage de l'écran Poules (2 ou 3 sets gagnants)
   const SETS_TO_WIN = setsToWin;
@@ -18,6 +19,12 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
     if (s2 === SETS_TO_WIN && s1 < SETS_TO_WIN) return 2;
     return null;
   })();
+
+  // Dès que le vainqueur est désigné, le curseur passe sur « Enregistrer » : Entrée
+  // valide alors le match sans repasser par la souris. Même règle que le tableau principal.
+  React.useEffect(() => {
+    if (modal && autoWinner) saveBtnRef.current?.focus();
+  }, [autoWinner, modal?.matchId]);
 
   // Classement d'une poule — délégué au helper partagé (AppShell)
   const poolStandings = (pool) => window.poolStandings(pool, players, results);
@@ -245,11 +252,11 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
         </div>
       </div>
 
-      {/* 3es qualifiés directement en consolante */}
+      {/* 3es directement en consolante */}
       {directConsolante.length > 0 && (
         <div>
           <div style={{ fontSize: 12, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10 }}>
-            3es qualifiés directement en consolante
+            3es directement en consolante
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {directConsolante.map(({ player, poolLabel }) => (
@@ -265,7 +272,8 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
       {/* Modal */}
       {modal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }} onClick={() => setModal(null)}>
-          <div style={{ background: t.cardBg, borderRadius: 16, padding: 28, width: 320, boxShadow: '0 16px 48px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: t.cardBg, borderRadius: 16, padding: 28, width: 320, boxShadow: '0 16px 48px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}
+            onKeyDown={e => { if (e.key === 'Enter' && autoWinner) { e.preventDefault(); saveResult(); } }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: t.textPrimary, marginBottom: 20 }}>Entrer le résultat</div>
             {[{ key: 'p1', player: modal.p1 }, { key: 'p2', player: modal.p2 }].map(({ key, player }) => (
               <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
@@ -287,7 +295,7 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
               <button onClick={() => setModal(null)} style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
                 Annuler
               </button>
-              <button onClick={saveResult} disabled={!autoWinner}
+              <button ref={saveBtnRef} onClick={saveResult} disabled={!autoWinner}
                 style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: autoWinner ? accentColor : t.tableBorder, color: '#fff', fontWeight: 700, fontSize: 13, cursor: autoWinner ? 'pointer' : 'not-allowed', opacity: autoWinner ? 1 : 0.5 }}>
                 <i className="fas fa-save" style={{ marginRight: 6 }}></i>Enregistrer
               </button>

@@ -428,7 +428,7 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
                   <span style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary, flex: 1, textAlign: 'right' }}>{selected.p2}</span>
                 </div>
                 <div style={{ fontSize: 11, color: t.textSecondary, marginTop: 4, textAlign: 'center' }}>
-                  Premier à {SETS_TO_WIN} sets gagnants · 11 pts min · 2 pts d'écart
+                  Saisissez le plus petit score dans la case du perdant
                 </div>
               </div>
 
