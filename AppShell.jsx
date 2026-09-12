@@ -300,6 +300,17 @@ const computeBracketStructure = (autoQualifiers, thirdsCount) => {
   return { ...base, bracketSize, mode: 'byes', byeCount: missing };
 };
 
+// Accès localStorage tolérant (navigation privée, quota…) : une lecture ratée
+// renvoie la valeur par défaut, une écriture ratée est ignorée. Utilisés par App
+// (index.html) pour tout l'état du tournoi, et par les écrans pour leurs
+// préférences d'affichage (sous-onglet actif, cf. ertt-results-tab / ertt-brackets-tab).
+const loadState = (key, def) => {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
+};
+const saveState = (key, val) => {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+};
+
 // Placement manuel de la consolante (drag & drop). Contrairement au reste, cette
 // clé est écrite directement par ConsolanteScreen, pas par App : elle doit donc
 // être purgée explicitement partout où le tournoi repart de zéro.
@@ -604,4 +615,4 @@ const randomPlayers = (count) => {
   });
 };
 
-Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, buildPrincipalSeeds, pruneBarrageResults, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });
+Object.assign(window, { AppShell, THEMES, loadState, saveState, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, buildPrincipalSeeds, pruneBarrageResults, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });

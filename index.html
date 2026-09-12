@@ -20,10 +20,10 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=15"></script>
+<script type="text/babel" src="AppShell.jsx?v=16"></script>
 <script type="text/babel" src="PoolsScreen.jsx?v=18"></script>
-<script type="text/babel" src="BracketsScreen.jsx?v=16"></script>
-<script type="text/babel" src="ResultsScreen.jsx?v=13"></script>
+<script type="text/babel" src="BracketsScreen.jsx?v=17"></script>
+<script type="text/babel" src="ResultsScreen.jsx?v=14"></script>
 <script type="text/babel">
 // KnockoutScreen — Tableau principal dynamique (n poules), classement intégral
 // Composition, taille et numérotation : AppShell.buildPrincipalSeeds (mode 'byes' =
@@ -370,12 +370,8 @@ const DEFAULT_SCREEN = /*EDITMODE-BEGIN*/"consolante"/*EDITMODE-END*/;
 // Look unique : Classique (la bascule de thème a été retirée)
 const THEME = 'classique';
 
-const loadState = (key, def) => {
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
-};
-const saveState = (key, val) => {
-  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
-};
+// Accès localStorage — helpers partagés (AppShell.jsx), les écrans les utilisent aussi
+const { loadState, saveState } = window;
 
 const App = () => {
   const theme = THEME;

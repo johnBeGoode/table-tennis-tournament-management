@@ -125,7 +125,10 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
   const MAX_SETS = setsToWin * 2 - 1;
   const initialSets = React.useCallback(() => Array.from({ length: MAX_SETS }, emptySet), [MAX_SETS]);
 
-  const [tab, setTab] = React.useState('pending');
+  // Sous-onglet mémorisé : on retrouve « À jouer » ou « Terminés » tel qu'on l'a laissé
+  // en revenant sur l'écran (ou après rechargement).
+  const [tab, setTab] = React.useState(() => window.loadState('ertt-results-tab', 'pending'));
+  React.useEffect(() => { window.saveState('ertt-results-tab', tab); }, [tab]);
   const [selected, setSelected] = React.useState(null);
   const [sets, setSets] = React.useState(() => Array.from({ length: MAX_SETS }, emptySet));
   const [setErrors, setSetErrors] = React.useState(() => Array(MAX_SETS).fill(null));

@@ -3,7 +3,10 @@
 
 const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracketResults }) => {
   const t = window.THEMES[theme];
-  const [subTab, setSubTab] = React.useState('poules');
+  // Sous-onglet mémorisé : on retrouve Poules / Tab principal / Classement final
+  // tel qu'on l'a laissé en revenant sur l'écran (ou après rechargement).
+  const [subTab, setSubTab] = React.useState(() => window.loadState('ertt-brackets-tab', 'poules'));
+  React.useEffect(() => { window.saveState('ertt-brackets-tab', subTab); }, [subTab]);
 
   const renderTabs = () => (
     <div style={{ display: 'flex', gap: 4, background: t.cardBg, borderRadius: t.cardRadius, padding: 4, width: 'fit-content', boxShadow: t.cardShadow, marginBottom: 20 }}>
