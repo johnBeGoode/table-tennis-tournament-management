@@ -1,20 +1,28 @@
-// PoolsScreen — Constitution manuelle des poules
-// Reçoit : players, pools, onUpdatePlayers, onUpdatePools
+// PoolsScreen — Joueurs, format et constitution des poules (répartition auto)
+// Reçoit : players, pools, onUpdatePlayers, onUpdatePools, poolsLocked, onUpdatePoolsLocked
 
-const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsToWin, onUpdatePlayers, onUpdatePools }) => {
+const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsToWin, onUpdatePlayers, onUpdatePools, poolsLocked = false, onUpdatePoolsLocked }) => {
   const t = window.THEMES[theme];
   const [newName, setNewName] = React.useState('');
   const [newRanking, setNewRanking] = React.useState('');
-  const [newPoolName, setNewPoolName] = React.useState('');
   const [addingToPool, setAddingToPool] = React.useState(null); // poolId en cours d'ajout
   const [confirmDeletePool, setConfirmDeletePool] = React.useState(null); // poolId en attente de confirmation
   const [confirmDeletePlayer, setConfirmDeletePlayer] = React.useState(null); // playerId en attente de confirmation
   const [showAutoDraw, setShowAutoDraw] = React.useState(false); // modale de répartition automatique
   const [autoPoolCount, setAutoPoolCount] = React.useState(null); // null = valeur par défaut (poules de 4)
+  const [confirmUnlock, setConfirmUnlock] = React.useState(false); // modale de déverrouillage des poules
   const nameInputRef = React.useRef(null); // pour rendre le focus au nom après chaque ajout
 
   // Format verrouillé dès qu'un match de poule a un résultat enregistré
   const formatLocked = Object.keys(results || {}).some(k => k.startsWith('pool-'));
+
+  // Poules verrouillées (`poolsLocked`, état d'App persisté) : posé par la répartition
+  // auto pour figer la composition une fois le tournoi lancé. Tant qu'il est actif,
+  // aucune action de modification n'est rendue — ni sur les poules (création,
+  // suppression, ajout/retrait de joueur, nouvelle répartition), ni sur les joueurs
+  // déjà placés. Seul « Déverrouiller » (confirmé) le lève ; les purges automatiques
+  // d'App (résultats orphelins, barrages périmés) prennent le relais ensuite.
+  const locked = !!poolsLocked;
 
   // Joueurs déjà assignés à une poule
   const assignedIds = new Set(pools.flatMap(p => p.playerIds));
@@ -81,25 +89,13 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
     })));
     setShowAutoDraw(false);
     setAutoPoolCount(null);
+    // Les poules sont figées dès qu'elles sortent de la répartition auto.
+    onUpdatePoolsLocked?.(true);
   };
 
   const removePlayer = (id) => {
     onUpdatePlayers(prev => prev.filter(p => p.id !== id));
     onUpdatePools(prev => prev.map(pool => ({ ...pool, playerIds: pool.playerIds.filter(pid => pid !== id) })));
-  };
-
-  // Premier nom « Poule X » non utilisé — évite les doublons après suppression d'une poule
-  const nextAutoPoolName = (() => {
-    const used = new Set(pools.map(p => p.name));
-    let i = 0;
-    while (used.has(`Poule ${String.fromCharCode(65 + i)}`)) i++;
-    return `Poule ${String.fromCharCode(65 + i)}`;
-  })();
-
-  const createPool = () => {
-    const name = newPoolName.trim() || nextAutoPoolName;
-    onUpdatePools(prev => [...prev, { id: Date.now(), name, playerIds: [] }]);
-    setNewPoolName('');
   };
 
   const removePool = (poolId) => {
@@ -210,8 +206,8 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
           </div>
         </div>
 
-        {/* Add player */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+        {/* Add player — masqué quand les poules sont verrouillées */}
+        {!locked && <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               ref={nameInputRef}
@@ -234,7 +230,7 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
           <button onClick={addPlayer} style={{ background: t.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 12px', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>
             <i className="fas fa-plus" style={{ marginRight: 6 }}></i>Ajouter le joueur
           </button>
-        </div>
+        </div>}
 
         {/* Player list — triée du mieux classé au moins bien classé */}
         <div style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, overflow: 'hidden' }}>
@@ -265,11 +261,13 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
                     {pools.find(pool => pool.playerIds.includes(p.id))?.name}
                   </span>
                 )}
-                <button onClick={() => setConfirmDeletePlayer(p.id)} style={{ background: 'transparent', border: 'none', color: t.textSecondary, cursor: 'pointer', fontSize: 14, padding: 2, opacity: 0.45, transition: 'opacity .2s' }}
-                  onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                  onMouseLeave={e => e.currentTarget.style.opacity = '0.45'}>
-                  <i className="fas fa-times"></i>
-                </button>
+                {!(locked && assignedIds.has(p.id)) && (
+                  <button onClick={() => setConfirmDeletePlayer(p.id)} style={{ background: 'transparent', border: 'none', color: t.textSecondary, cursor: 'pointer', fontSize: 14, padding: 2, opacity: 0.45, transition: 'opacity .2s' }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                    onMouseLeave={e => e.currentTarget.style.opacity = '0.45'}>
+                    <i className="fas fa-times"></i>
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -282,6 +280,25 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
           <div style={{ fontSize: 12, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px' }}>
             Poules ({pools.length})
           </div>
+          {locked ? (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <span title="Composition figée par la répartition automatique"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: t.textSecondary, background: `${t.textSecondary}12`, border: `1px solid ${t.tableBorder}`, borderRadius: 8, padding: '6px 12px' }}>
+                <i className="fas fa-lock"></i>Poules verrouillées
+              </span>
+              <button onClick={() => setConfirmUnlock(true)}
+                style={{ background: 'transparent', color: t.textSecondary, border: `1.5px solid ${t.tableBorder}`, borderRadius: 8, padding: '6px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <i className="fas fa-lock-open" style={{ marginRight: 6 }}></i>Déverrouiller
+              </button>
+            </div>
+          ) : pools.length > 0 ? (
+            /* Poules déverrouillées pour une retouche (intervertir deux joueurs…) :
+               on propose de reverrouiller, pas de tout redistribuer. */
+            <button onClick={() => onUpdatePoolsLocked?.(true)}
+              style={{ background: t.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <i className="fas fa-lock" style={{ marginRight: 6 }}></i>Verrouiller
+            </button>
+          ) : (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button onClick={() => { setAutoPoolCount(null); setShowAutoDraw(true); }}
               disabled={players.length < 2}
@@ -300,23 +317,14 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
               }}>
               <i className="fas fa-wand-magic-sparkles" style={{ marginRight: 6, color: '#d4af37' }}></i>Répartition auto
             </button>
-            <input
-              placeholder={nextAutoPoolName}
-              value={newPoolName}
-              onChange={e => setNewPoolName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && createPool()}
-              style={{ width: 120, padding: '7px 10px', borderRadius: 8, border: `1px solid ${t.inputBorder}`, background: t.inputBg, fontSize: 13, color: t.textPrimary, outline: 'none' }}
-            />
-            <button onClick={createPool} style={{ background: t.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontWeight: 700, cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap' }}>
-              <i className="fas fa-plus" style={{ marginRight: 6 }}></i>Créer une poule
-            </button>
           </div>
+          )}
         </div>
 
         {pools.length === 0 && (
           <div style={{ padding: '48px', textAlign: 'center', color: t.textSecondary, background: t.cardBg, borderRadius: t.cardRadius, border: `1px dashed ${t.tableBorder}` }}>
             <i className="fas fa-layer-group" style={{ fontSize: 28, marginBottom: 10, display: 'block', opacity: .3 }}></i>
-            Aucune poule créée — cliquez sur "Créer une poule"
+            Aucune poule — cliquez sur « Répartition auto » pour constituer les poules
           </div>
         )}
 
@@ -334,12 +342,14 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
                   <span style={{ background: t.primary, color: '#fff', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>{pool.name}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 12, color: t.textSecondary }}>{poolPlayers.length} joueur{poolPlayers.length !== 1 ? 's' : ''}</span>
-                    <button onClick={() => setConfirmDeletePool(pool.id)}
-                      style={{ background: 'transparent', border: 'none', color: t.textSecondary, cursor: 'pointer', fontSize: 13, opacity: 0.45, transition: 'opacity .2s' }}
-                      onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                      onMouseLeave={e => e.currentTarget.style.opacity = '0.45'}>
-                      <i className="fas fa-trash-alt"></i>
-                    </button>
+                    {!locked && (
+                      <button onClick={() => setConfirmDeletePool(pool.id)}
+                        style={{ background: 'transparent', border: 'none', color: t.textSecondary, cursor: 'pointer', fontSize: 13, opacity: 0.45, transition: 'opacity .2s' }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                        onMouseLeave={e => e.currentTarget.style.opacity = '0.45'}>
+                        <i className="fas fa-trash-alt"></i>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -352,9 +362,11 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
                       </div>
                       <span style={{ fontSize: 13, color: t.textPrimary, fontWeight: 500 }}>{p.name}</span>
                     </div>
-                    <button onClick={() => removeFromPool(pool.id, p.id)} style={{ background: 'transparent', border: 'none', color: t.textSecondary, cursor: 'pointer', fontSize: 13 }}>
-                      <i className="fas fa-times"></i>
-                    </button>
+                    {!locked && (
+                      <button onClick={() => removeFromPool(pool.id, p.id)} style={{ background: 'transparent', border: 'none', color: t.textSecondary, cursor: 'pointer', fontSize: 13 }}>
+                        <i className="fas fa-times"></i>
+                      </button>
+                    )}
                   </div>
                 ))}
 
@@ -377,9 +389,9 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
                       Annuler
                     </button>
                   </div>
-                ) : poolPlayers.length >= MAX_POOL_SIZE ? (
-                  /* Poule pleine : poules de 4 maximum, à la main comme en répartition
-                     auto — le bouton d'ajout disparaît, sans message. */
+                ) : locked || poolPlayers.length >= MAX_POOL_SIZE ? (
+                  /* Poules verrouillées, ou poule pleine (4 maximum, à la main comme en
+                     répartition auto) — le bouton d'ajout disparaît, sans message. */
                   null
                 ) : (
                   <button onClick={() => setAddingToPool(pool.id)}
@@ -500,6 +512,36 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
           </div>
         );
       })()}
+
+      {/* Modale confirmation déverrouillage des poules */}
+      {confirmUnlock && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
+          onClick={() => setConfirmUnlock(false)}>
+          <div style={{ background: t.cardBg, borderRadius: 14, padding: '28px 28px 22px', width: 340, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#fff8ec', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <i className="fas fa-lock-open" style={{ color: '#d19a2a', fontSize: 18 }}></i>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>
+              Déverrouiller les poules ?
+            </div>
+            <div style={{ fontSize: 13, color: t.textSecondary, marginBottom: 24, lineHeight: 1.5 }}>
+              Les poules redeviennent modifiables. Toute modification de composition efface
+              les résultats de poule et les barrages qui en dépendent.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConfirmUnlock(false)}
+                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                Annuler
+              </button>
+              <button onClick={() => { onUpdatePoolsLocked?.(false); setConfirmUnlock(false); }}
+                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: '#d19a2a', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                Déverrouiller
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modale confirmation suppression joueur */}
       {confirmDeletePlayer && (() => {

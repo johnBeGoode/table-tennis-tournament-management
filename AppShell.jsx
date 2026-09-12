@@ -400,6 +400,26 @@ const buildPrincipalSeeds = ({ pools, players, results, barrageResults }) => {
   return { struct, bracketSize, seeds, firsts, keptSeconds, barrageWinners, barrageMatches };
 };
 
+// Purge des résultats de barrage périmés. Un résultat n'est valable que si le
+// barrage existe encore (même id `barrage-{poolIdA}-{poolIdB}`) ET s'il oppose
+// encore les mêmes joueurs, dans le même ordre (p1/p2 sont des copies : sans ce
+// contrôle, un 3e détrôné par une correction de poule resterait « vainqueur »
+// et serait placé dans le tableau principal). Renvoie l'objet d'origine si rien
+// n'est à jeter, pour ne pas déclencher de re-rendu inutile.
+const pruneBarrageResults = (barrageResults, { pools, players, results }) => {
+  const { barrageMatches } = buildPrincipalSeeds({ pools, players, results, barrageResults: {} });
+  const expected = {};
+  barrageMatches.forEach(m => { expected[m.id] = m; });
+  const stale = Object.keys(barrageResults || {}).filter(id => {
+    const r = barrageResults[id], m = expected[id];
+    return !m || r?.p1?.id !== m.p1.id || r?.p2?.id !== m.p2.id;
+  });
+  if (stale.length === 0) return barrageResults;
+  const next = { ...barrageResults };
+  stale.forEach(id => delete next[id]);
+  return next;
+};
+
 // --- Classement intégral (feuilles FFTT « KO Clt Int ») --------------------------
 // Règle unique, appliquée récursivement : à chaque tour, les vainqueurs continuent dans
 // leur sous-tableau, les perdants tombent dans un sous-tableau parallèle qui joue la
@@ -554,4 +574,4 @@ const randomPlayers = (count) => {
   });
 };
 
-Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });
+Object.assign(window, { AppShell, THEMES, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, buildPrincipalSeeds, pruneBarrageResults, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });

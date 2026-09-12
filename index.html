@@ -20,8 +20,8 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=13"></script>
-<script type="text/babel" src="PoolsScreen.jsx?v=15"></script>
+<script type="text/babel" src="AppShell.jsx?v=14"></script>
+<script type="text/babel" src="PoolsScreen.jsx?v=18"></script>
 <script type="text/babel" src="BracketsScreen.jsx?v=15"></script>
 <script type="text/babel" src="ResultsScreen.jsx?v=11"></script>
 <script type="text/babel">
@@ -396,6 +396,9 @@ const App = () => {
   const [bracketResults, setBracketResults] = React.useState(() => loadState('ertt-bracket-results', {}));
   const [barrageResults, setBarrageResults] = React.useState(() => loadState('ertt-barrage-results', {}));
   const [setsToWin, setSetsToWin] = React.useState(() => loadState('ertt-sets-to-win', 3));
+  // Verrou des poules : posé par la répartition auto, levé uniquement par
+  // « Déverrouiller » (PoolsScreen, confirmé), « Réinitialiser » ou « Joueurs de test ».
+  const [poolsLocked, setPoolsLocked] = React.useState(() => loadState('ertt-pools-locked', false));
 
   // Persist shared state
   React.useEffect(() => { saveState('ertt-players', players); }, [players]);
@@ -404,6 +407,7 @@ const App = () => {
   React.useEffect(() => { saveState('ertt-bracket-results', bracketResults); }, [bracketResults]);
   React.useEffect(() => { saveState('ertt-barrage-results', barrageResults); }, [barrageResults]);
   React.useEffect(() => { saveState('ertt-sets-to-win', setsToWin); }, [setsToWin]);
+  React.useEffect(() => { saveState('ertt-pools-locked', poolsLocked); }, [poolsLocked]);
 
   // Purge des résultats orphelins : quand la composition des poules change
   // (joueur retiré, poule supprimée…), les résultats des paires qui n'existent
@@ -425,6 +429,14 @@ const App = () => {
     });
   }, [pools]);
 
+  // Purge des résultats de barrage périmés : dès qu'un classement de poule bouge
+  // (score corrigé, poule modifiée…), les barrages dont la paire de poules ou les
+  // joueurs ont changé sont effacés — sinon un vainqueur périmé (copie stockée)
+  // resterait placé dans le tableau principal. Règle : AppShell.pruneBarrageResults.
+  React.useEffect(() => {
+    setBarrageResults(prev => window.pruneBarrageResults(prev, { pools, players, results }));
+  }, [pools, players, results]);
+
   const handleScreen = (v) => setScreen(v);
 
   const resetAll = () => {
@@ -433,6 +445,7 @@ const App = () => {
     setResults({});
     setBracketResults({});
     setBarrageResults({});
+    setPoolsLocked(false);
     // Écrite hors de l'état d'App par ConsolanteScreen : à purger à la main
     window.clearConsolanteSeeds();
   };
@@ -444,12 +457,13 @@ const App = () => {
     setResults({});
     setBracketResults({});
     setBarrageResults({});
+    setPoolsLocked(false);
     window.clearConsolanteSeeds();
     setScreen('poules');
   };
 
   const screenMap = {
-    poules:     <PoolsScreen    theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateSetsToWin={setSetsToWin} onUpdatePlayers={setPlayers} onUpdatePools={setPools} />,
+    poules:     <PoolsScreen    theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateSetsToWin={setSetsToWin} onUpdatePlayers={setPlayers} onUpdatePools={setPools} poolsLocked={poolsLocked} onUpdatePoolsLocked={setPoolsLocked} />,
     brackets:   <BracketsScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} />,
     resultats:  <ResultsScreen  theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateResults={setResults} />,
     barrage:    <BarrageScreen  theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} setsToWin={setsToWin} onUpdateBarrageResults={setBarrageResults} />,
