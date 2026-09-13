@@ -39,11 +39,33 @@ const NAV_ITEMS = [
   { id: 'consolante', label: 'Consolante',          icon: 'fas fa-shield-halved' },
 ];
 
-const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll, onSeedPlayers }) => {
+// Déverrouillage du bouton « Mode test » : 5 clics rapprochés sur le logo de la
+// sidebar. Geste introuvable par hasard, qui marche aussi bien au doigt qu'à la
+// souris et ne demande ni URL particulière ni console. Refaire le geste recache le
+// bouton (et éteint le mode test au passage) ; rien n'est persisté, un rechargement
+// de page suffit donc à tout remettre hors de vue.
+const UNLOCK_CLICKS = 5;
+const UNLOCK_MAX_GAP = 1500;   // ms au-delà desquelles le compteur de clics repart de zéro
+
+const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll, onSeedPlayers, testMode, onToggleTestMode }) => {
   const t = THEMES[theme];
   const [confirmReset, setConfirmReset] = React.useState(false);
   const [showSeed, setShowSeed] = React.useState(false);   // modale « joueurs de test »
   const [seedCount, setSeedCount] = React.useState('');
+  const [testUnlocked, setTestUnlocked] = React.useState(false);   // bouton « Mode test » visible
+  const logoClicks = React.useRef({ count: 0, last: 0 });
+
+  const handleLogoClick = () => {
+    const now = Date.now();
+    const c = logoClicks.current;
+    c.count = (now - c.last > UNLOCK_MAX_GAP) ? 1 : c.count + 1;
+    c.last = now;
+    if (c.count < UNLOCK_CLICKS) return;
+    c.count = 0;
+    const next = !testUnlocked;
+    setTestUnlocked(next);
+    if (!next && testMode) onToggleTestMode();   // on recache : le mode test s'éteint avec le bouton
+  };
 
   const submitSeed = () => {
     const n = parseInt(seedCount, 10);
@@ -66,7 +88,7 @@ const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll, 
         padding: '0 0 24px',
       }}>
         {/* Logo */}
-        <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid #e8eaed' }}>
+        <div onClick={handleLogoClick} style={{ padding: '20px 20px 16px', borderBottom: '1px solid #e8eaed', userSelect: 'none' }}>
           <div style={{ fontSize: 15, fontWeight: 900, color: t.primary, letterSpacing: '-0.3px' }}>TENNIS DE TABLE</div>
           <div style={{ fontSize: 11, color: t.sidebarText, marginTop: 2, opacity: 0.7, fontWeight: 500, letterSpacing: '.3px' }}>GESTION DE TOURNOI</div>
         </div>
@@ -97,20 +119,43 @@ const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll, 
           })}
         </nav>
 
-        {/* Génération de joueurs de test */}
-        <div style={{ padding: '8px 10px 0' }}>
-          <button onClick={() => setShowSeed(true)}
+        {/* Bascule du mode test : allumée, elle fait apparaître les boutons de
+            données factices (« Joueurs de test », « Générer les scores »). Le bouton
+            lui-même reste caché tant que le logo n'a pas reçu ses 5 clics. */}
+        {testUnlocked && (
+        <div style={{ padding: '8px 10px 0', display: 'flex', justifyContent: 'center' }}>
+          <button onClick={onToggleTestMode}
             style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              width: '100%', padding: '10px 12px', borderRadius: 8,
-              border: 'none', cursor: 'pointer', textAlign: 'left',
-              background: 'transparent', color: t.primary,
-              fontWeight: 500, fontSize: 14,
+              display: 'flex', alignItems: 'center', gap: 7,
+              padding: '8px 20px', borderRadius: 8,
+              cursor: 'pointer', textAlign: 'center',
+              border: `1.5px solid ${t.primary}`,
+              background: testMode ? t.primary : 'transparent',
+              color: testMode ? t.primaryText : t.primary,
+              fontWeight: 700, fontSize: 13, fontFamily: 'inherit',
             }}>
-            <i className="fas fa-user-plus" style={{ width: 18, textAlign: 'center', fontSize: 15 }}></i>
-            Joueurs de test
+            {testMode && <i className="fas fa-check" style={{ fontSize: 11 }}></i>}
+            Mode test
           </button>
         </div>
+        )}
+
+        {/* Génération de joueurs de test — réservée au mode test */}
+        {testMode && (
+          <div style={{ padding: '8px 10px 0' }}>
+            <button onClick={() => setShowSeed(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                width: '100%', padding: '10px 12px', borderRadius: 8,
+                border: 'none', cursor: 'pointer', textAlign: 'left',
+                background: 'transparent', color: t.primary,
+                fontWeight: 500, fontSize: 14,
+              }}>
+              <i className="fas fa-user-plus" style={{ width: 18, textAlign: 'center', fontSize: 15 }}></i>
+              Joueurs de test
+            </button>
+          </div>
+        )}
 
         {/* Réinitialisation complète du tournoi */}
         <div style={{ padding: '8px 10px' }}>

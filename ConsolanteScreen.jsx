@@ -1,7 +1,7 @@
 // ConsolanteScreen — Tableau consolante avec placement manuel par drag & drop,
 // en classement intégral (structure : AppShell.buildIntegralBracket, avec byes)
 
-const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, bracketResults, onUpdateBracketResults }) => {
+const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, bracketResults, onUpdateBracketResults, testMode }) => {
   const t = window.THEMES[theme];
   const accentColor = '#f79025';
   const prefix = 'consolante';
@@ -454,7 +454,8 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
               <i className="fas fa-list" style={{ marginRight: 6 }}></i>Placement
             </button>
           )}
-          {showBracket && (
+          {/* Données de test : réservé au mode test (bascule dans la sidebar) */}
+          {showBracket && testMode && (
             <button onClick={generateScores} disabled={!hasPendingMatch}
               style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: hasPendingMatch ? accentColor : t.tableBorder, color: hasPendingMatch ? '#fff' : t.textSecondary, fontWeight: 600, fontSize: 12, cursor: hasPendingMatch ? 'pointer' : 'default' }}>
               <i className="fas fa-dice" style={{ marginRight: 6 }}></i>Générer les scores

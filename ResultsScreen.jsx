@@ -118,7 +118,7 @@ const randomResult = (setsToWin) => {
 
 const emptySet = () => ({ s1: '', s2: '', done: false });
 
-const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdateResults }) => {
+const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdateResults, testMode }) => {
   const t = window.THEMES[theme];
   // Format dynamique : best-of-3 (2 sets gagnants) ou best-of-5 (3 sets gagnants)
   const SETS_TO_WIN = setsToWin;
@@ -307,18 +307,21 @@ const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdate
             </button>
           ))}
         </div>
-        <button onClick={generateAllResults} disabled={pending.length === 0}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '9px 16px', borderRadius: t.btnRadius, border: 'none',
-            background: pending.length === 0 ? t.tableBorder : t.primary,
-            color: pending.length === 0 ? t.textSecondary : t.primaryText,
-            fontWeight: 700, fontSize: 13,
-            cursor: pending.length === 0 ? 'default' : 'pointer',
-          }}>
-          <i className="fas fa-dice" style={{ fontSize: 14 }}></i>
-          Générer les scores
-        </button>
+        {/* Données de test : réservé au mode test (bascule dans la sidebar) */}
+        {testMode && (
+          <button onClick={generateAllResults} disabled={pending.length === 0}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '9px 16px', borderRadius: t.btnRadius, border: 'none',
+              background: pending.length === 0 ? t.tableBorder : t.primary,
+              color: pending.length === 0 ? t.textSecondary : t.primaryText,
+              fontWeight: 700, fontSize: 13,
+              cursor: pending.length === 0 ? 'default' : 'pointer',
+            }}>
+            <i className="fas fa-dice" style={{ fontSize: 14 }}></i>
+            Générer les scores
+          </button>
+        )}
         </div>
 
         {/* À jouer */}

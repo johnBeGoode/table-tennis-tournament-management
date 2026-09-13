@@ -20,17 +20,17 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=17"></script>
+<script type="text/babel" src="AppShell.jsx?v=23"></script>
 <script type="text/babel" src="PoolsScreen.jsx?v=18"></script>
 <script type="text/babel" src="BracketsScreen.jsx?v=17"></script>
-<script type="text/babel" src="ResultsScreen.jsx?v=14"></script>
+<script type="text/babel" src="ResultsScreen.jsx?v=15"></script>
 <script type="text/babel">
 // KnockoutScreen — Tableau principal dynamique (n poules), classement intégral
 // Composition, taille et numérotation : AppShell.buildPrincipalSeeds (mode 'byes' =
 // exemptés de 1er tour, mode 'barrage' = slots en attente des barrages)
 // Structure des tours et sous-tableaux : AppShell.buildIntegralBracket
 
-const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracketResults, onUpdateBracketResults, type }) => {
+const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracketResults, onUpdateBracketResults, type, testMode }) => {
   const t = window.THEMES[theme];
   const [modal, setModal] = React.useState(null);
   const [score, setScore] = React.useState({ p1: '', p2: '' });
@@ -274,12 +274,15 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
           {struct.mode !== 'byes' && ` (${totalRounds} par joueur)`}
         </span>
         <span style={{ fontSize: 12, color: t.textSecondary }}>· Cliquez sur un match pour entrer le résultat</span>
-        <div style={{ marginLeft: 'auto' }}>
-          <button onClick={generateScores} disabled={!hasPendingMatch}
-            style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: hasPendingMatch ? accentColor : t.tableBorder, color: hasPendingMatch ? '#fff' : t.textSecondary, fontWeight: 600, fontSize: 12, cursor: hasPendingMatch ? 'pointer' : 'default' }}>
-            <i className="fas fa-dice" style={{ marginRight: 6 }}></i>Générer les scores
-          </button>
-        </div>
+        {/* Données de test : réservé au mode test (bascule dans la sidebar) */}
+        {testMode && (
+          <div style={{ marginLeft: 'auto' }}>
+            <button onClick={generateScores} disabled={!hasPendingMatch}
+              style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: hasPendingMatch ? accentColor : t.tableBorder, color: hasPendingMatch ? '#fff' : t.textSecondary, fontWeight: 600, fontSize: 12, cursor: hasPendingMatch ? 'pointer' : 'default' }}>
+              <i className="fas fa-dice" style={{ marginRight: 6 }}></i>Générer les scores
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Une colonne par tour, N/2 matchs par colonne : tout ce qui est dans une
@@ -362,7 +365,7 @@ Object.assign(window, { KnockoutScreen });
 
 </script>
 <script type="text/babel" src="BarrageScreen.jsx?v=11"></script>
-<script type="text/babel" src="ConsolanteScreen.jsx?v=15"></script>
+<script type="text/babel" src="ConsolanteScreen.jsx?v=16"></script>
 
 <script type="text/babel">
 const DEFAULT_SCREEN = /*EDITMODE-BEGIN*/"consolante"/*EDITMODE-END*/;
@@ -382,6 +385,10 @@ const App = () => {
   const theme = THEME;
   const [screen, setScreen] = React.useState(() => loadState('ertt-screen', DEFAULT_SCREEN));
   React.useEffect(() => { saveState('ertt-screen', screen); }, [screen]);
+
+  // Mode test : masque/affiche les boutons de données factices (« Joueurs de test »,
+  // « Générer les scores »). Jamais persisté — chaque chargement de page repart éteint.
+  const [testMode, setTestMode] = React.useState(false);
 
   // Shared state
   // Migration : les joueurs sans points (non classés d'avant le plancher) ou sous
@@ -489,14 +496,15 @@ const App = () => {
   const screenMap = {
     poules:     <PoolsScreen    theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateSetsToWin={setSetsToWin} onUpdatePlayers={setPlayers} onUpdatePools={setPools} poolsLocked={poolsLocked} onUpdatePoolsLocked={setPoolsLocked} />,
     brackets:   <BracketsScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} />,
-    resultats:  <ResultsScreen  theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateResults={setResults} />,
+    resultats:  <ResultsScreen  theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateResults={setResults} testMode={testMode} />,
     barrage:    <BarrageScreen  theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} setsToWin={setsToWin} onUpdateBarrageResults={setBarrageResults} />,
-    principal:  <KnockoutScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} type="principal" />,
-    consolante: <ConsolanteScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} />,
+    principal:  <KnockoutScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} type="principal" testMode={testMode} />,
+    consolante: <ConsolanteScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} testMode={testMode} />,
   };
 
   return (
-    <AppShell theme={theme} screen={screen} onNav={handleScreen} tournamentName="Tournoi Amical Printemps 2026" onResetAll={resetAll} onSeedPlayers={seedPlayers}>
+    <AppShell theme={theme} screen={screen} onNav={handleScreen} tournamentName="Tournoi Amical Printemps 2026" onResetAll={resetAll} onSeedPlayers={seedPlayers}
+      testMode={testMode} onToggleTestMode={() => setTestMode(v => !v)}>
       {screenMap[screen]}
     </AppShell>
   );
