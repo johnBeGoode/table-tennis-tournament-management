@@ -303,12 +303,27 @@ const computeBracketStructure = (autoQualifiers, thirdsCount) => {
 // Accès localStorage tolérant (navigation privée, quota…) : une lecture ratée
 // renvoie la valeur par défaut, une écriture ratée est ignorée. Utilisés par App
 // (index.html) pour tout l'état du tournoi, et par les écrans pour leurs
-// préférences d'affichage (sous-onglet actif, cf. ertt-results-tab / ertt-brackets-tab).
+// préférences d'affichage (sous-onglet actif, cf. resetTabPreferences).
 const loadState = (key, def) => {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
 };
 const saveState = (key, val) => {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+};
+
+// Sous-onglets de Résultats et de Classements. La préférence mémorisée sert à
+// retrouver le dernier sous-onglet consulté quand on quitte puis revient sur
+// l'écran, mais elle ne doit pas survivre au rechargement de la page : au
+// démarrage de l'application on repart toujours de « À jouer » et « Poules ».
+// D'où cette remise à zéro, appelée une fois au chargement par index.html,
+// avant que le moindre écran ne lise sa préférence.
+const TAB_PREFERENCE_DEFAULTS = {
+  'ertt-results-tab': 'pending',
+  'ertt-brackets-tab': 'poules',
+};
+
+const resetTabPreferences = () => {
+  Object.entries(TAB_PREFERENCE_DEFAULTS).forEach(([key, def]) => saveState(key, def));
 };
 
 // Placement manuel de la consolante (drag & drop). Contrairement au reste, cette
@@ -615,4 +630,4 @@ const randomPlayers = (count) => {
   });
 };
 
-Object.assign(window, { AppShell, THEMES, loadState, saveState, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, buildPrincipalSeeds, pruneBarrageResults, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });
+Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, buildPrincipalSeeds, pruneBarrageResults, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });

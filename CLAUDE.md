@@ -80,8 +80,8 @@ Tout l'état vit dans `App` (`index.html`, vers la ligne 438) en `React.useState
 | `ertt-sets-to-win` | `2` ou `3` (défaut `3`) |
 | `ertt-pools-locked` | `true` dès que « Répartir » (répartition auto) a été appliqué : l'écran Poules masque toute action de modification (création/suppression de poule, ajout/retrait de joueur, nouvelle répartition, suppression d'un joueur placé, ajout de joueur). Levé seulement par « Déverrouiller » (modale de confirmation), « Réinitialiser » ou « Joueurs de test ». Une fois déverrouillé avec des poules existantes, l'en-tête propose « Verrouiller » (pas de nouvelle répartition auto) ; « Répartition auto » n'apparaît que sans aucune poule. |
 | `ertt-screen` | écran actif |
-| `ertt-results-tab` | sous-onglet de Résultats (`pending` / `done`) — écrit par `ResultsScreen.jsx` |
-| `ertt-brackets-tab` | sous-onglet de Classements (`poules` / `principal` / `final`) — écrit par `BracketsScreen.jsx` |
+| `ertt-results-tab` | sous-onglet de Résultats (`pending` / `done`) — écrit par `ResultsScreen.jsx`, remis à `pending` à chaque chargement de page |
+| `ertt-brackets-tab` | sous-onglet de Classements (`poules` / `principal` / `final`) — écrit par `BracketsScreen.jsx`, remis à `poules` à chaque chargement de page |
 | `consolante-seeds-v4` | placement manuel de la consolante — écrit **directement** par `ConsolanteScreen.jsx`, pas par `App`. Le suffixe de version est incrémenté dès que le placement change — `buildSeedingPattern` **ou** la numérotation des têtes de série de `ConsolanteScreen` — pour jeter les placements construits avec l'ancienne règle. Clé, clés héritées et purge : `CONSOLANTE_SEEDS_KEY` / `CONSOLANTE_SEEDS_LEGACY_KEYS` / `clearConsolanteSeeds()` dans `AppShell.jsx` |
 
 Il n'existe **pas d'entité Tournoi** : un seul tournoi implicite, dont le nom est codé en dur dans `index.html`.
@@ -94,6 +94,7 @@ Il n'existe **pas d'entité Tournoi** : un seul tournoi implicite, dont le nom e
 `poolMatchKey(poolId, idA, idB)` (`AppShell.jsx`) renvoie `pool-{poolId}-{lo}-{hi}` avec **toujours le plus petit id en premier**. Les sets stockés sont orientés `(lo, hi)` : `s1` appartient au joueur de plus petit id, **jamais** au « premier joueur de la poule ». Inverser cette orientation ne provoque aucune erreur — ça inverse silencieusement tous les classements. Une migration des anciennes clés non canoniques tourne au démarrage dans `App`.
 
 ### Utilitaires partagés (`AppShell.jsx`, exportés sur `window`)
+- `resetTabPreferences()` → remet `ertt-results-tab` et `ertt-brackets-tab` à `pending` / `poules`. Appelé **une fois au chargement** par `index.html`, avant le premier rendu : le sous-onglet consulté survit donc à un aller-retour entre écrans (c'est tout l'intérêt de la clé, les écrans se démontent) mais jamais à un rechargement de page, où Résultats et Classements repartent sur « À jouer » et « Poules ».
 - `loadState(key, def)` / `saveState(key, val)` → `localStorage` en JSON, tolérants aux erreurs. `App` les récupère depuis `window` ; un écran qui veut mémoriser une préférence d'affichage (sous-onglet) les utilise avec sa propre clé `ertt-*`.
 - `poolStandings(pool, players, results)` → `[{ id, name, v, d, sf, sa, pf, pa }]` triés. **Source unique** du classement de poule, utilisée par tous les écrans.
 - `crossPoolCompare(a, b)` → comparateur inter-poules, **Art. II.109 FFTT** : par quotients (points-rencontre / rencontres jouées, puis manches, puis points-jeu) et non par totaux bruts, pour rester juste entre poules de 3 et de 4.

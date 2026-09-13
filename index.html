@@ -20,7 +20,7 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=16"></script>
+<script type="text/babel" src="AppShell.jsx?v=17"></script>
 <script type="text/babel" src="PoolsScreen.jsx?v=18"></script>
 <script type="text/babel" src="BracketsScreen.jsx?v=17"></script>
 <script type="text/babel" src="ResultsScreen.jsx?v=14"></script>
@@ -372,6 +372,11 @@ const THEME = 'classique';
 
 // Accès localStorage — helpers partagés (AppShell.jsx), les écrans les utilisent aussi
 const { loadState, saveState } = window;
+
+// Au démarrage de l'application, Résultats et Classements repartent toujours de
+// « À jouer » et « Poules ». Le sous-onglet consulté reste mémorisé pendant la
+// session (aller-retour entre écrans), mais pas d'un chargement de page à l'autre.
+window.resetTabPreferences();
 
 const App = () => {
   const theme = THEME;
