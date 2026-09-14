@@ -51,7 +51,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
     ...s, setsFor: s.sf, setsAgainst: s.sa, ptsFor: s.pf, ptsAgainst: s.pa,
   }));
 
-  // Égalités que les 3 quotients FFTT ne départagent pas (crossPoolCompare === 0).
+  // Égalités que les 3 critères intra-poule ne départagent pas (poolCompare === 0).
   // Le règlement prévoit alors un tirage au sort : l'ordre affiché est arbitraire, on le signale.
   // Les joueurs sans match joué sont ignorés, sinon une poule vierge serait entièrement « ex æquo ».
   const markTies = (standings) => {
@@ -59,7 +59,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
     for (let i = 0; i < standings.length - 1; i++) {
       const a = standings[i], b = standings[i + 1];
       if (a.v + a.d === 0 || b.v + b.d === 0) continue;
-      if (window.crossPoolCompare(a, b) === 0) { tied[i] = true; tied[i + 1] = true; }
+      if (window.poolCompare(a, b) === 0) { tied[i] = true; tied[i + 1] = true; }
     }
     return tied;
   };

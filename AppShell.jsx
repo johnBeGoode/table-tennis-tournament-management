@@ -301,10 +301,9 @@ const poolStandings = (pool, players, results) => {
       si.sf += w1; si.sa += w2; sj.sf += w2; sj.sa += w1;
     }
   }
-  // Départage à égalité : les mêmes quotients que l'inter-poules (Art. II.109 FFTT),
-  // et non des différences brutes — un joueur qui perd 3-0 puis gagne 3-2 et un joueur
-  // qui perd 3-2 puis gagne 3-0 ont la même différence de manches mais pas le même quotient.
-  return stats.sort(crossPoolCompare);
+  // Départage à égalité : comparateur intra-poule (différences de manches puis de points),
+  // et non crossPoolCompare, dont les quotients sont réservés à l'inter-poules.
+  return stats.sort(poolCompare);
 };
 
 // Comparateur transversal inter-poules — Art. II.109 du règlement FFTT.
@@ -314,11 +313,30 @@ const poolStandings = (pool, players, results) => {
 // Ordre des critères : (1) quotient points-rencontre (2 pts/victoire, 1 pt/défaite jouée) / rencontres jouées,
 // (2) quotient manches gagnées/perdues, (3) quotient points-jeu gagnés/perdus.
 const ratio = (num, den) => den > 0 ? num / den : (num > 0 ? Infinity : 0);
+// 1er critère commun aux deux comparateurs : quotient points-rencontre / rencontres jouées.
+const matchPointsCompare = (a, b) => {
+  const prA = ratio(2 * a.v + a.d, a.v + a.d);
+  const prB = ratio(2 * b.v + b.d, b.v + b.d);
+  return prB - prA;
+};
+
+// Comparateur intra-poule — départage de joueurs d'une même poule.
+// Même 1er critère que l'inter-poules, puis des différences (soustractions) et non des quotients :
+// (2) manches gagnées − manches perdues, (3) points-jeu marqués − points-jeu encaissés.
+// Attendu : {v, d, sf, sa, pf, pa}.
+const poolCompare = (a, b) => {
+  const pr = matchPointsCompare(a, b);
+  if (pr !== 0) return pr;
+  const setsDiff = (b.sf - b.sa) - (a.sf - a.sa);
+  if (setsDiff !== 0) return setsDiff;
+  const ptsDiff = (b.pf - b.pa) - (a.pf - a.pa);
+  if (ptsDiff !== 0) return ptsDiff;
+  return 0; // égalité persistante — départage par tirage au sort (hors scope du tri auto)
+};
+
 const crossPoolCompare = (a, b) => {
-  const playedA = a.v + a.d, playedB = b.v + b.d;
-  const prA = ratio(2 * a.v + a.d, playedA);
-  const prB = ratio(2 * b.v + b.d, playedB);
-  if (prA !== prB) return prB - prA;
+  const pr = matchPointsCompare(a, b);
+  if (pr !== 0) return pr;
   const setsA = ratio(a.sf, a.sa), setsB = ratio(b.sf, b.sa);
   if (setsA !== setsB) return setsB - setsA;
   const ptsA = ratio(a.pf, a.pa), ptsB = ratio(b.pf, b.pa);
@@ -675,4 +693,4 @@ const randomPlayers = (count) => {
   });
 };
 
-Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, buildPrincipalSeeds, pruneBarrageResults, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });
+Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, poolCompare, crossPoolCompare, computeBracketStructure, buildSeedingPattern, buildPrincipalSeeds, pruneBarrageResults, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });
