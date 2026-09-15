@@ -449,10 +449,22 @@ const App = () => {
       return missing === 2 && thirdsCount >= 2 ? 'thirds' : 'byes';
     };
     if (regime(schema) !== regime(BRACKET_SCHEMA)) return {};
-    // 5 → 6 : à régime 'byes' inchangé, le placement lui-même a changé — les exemptions
-    // vont désormais aux meilleures TS, donc les slots ne désignent plus les mêmes
-    // joueurs. Les autres régimes sont intacts.
-    if (schema < 6 && regime(BRACKET_SCHEMA) === 'byes') return {};
+    // 5 → 6 : à régime 'byes' inchangé, le placement a pu changer — les exemptions vont
+    // désormais aux meilleures TS. Deux causes, il suffit de l'une :
+    //   • on vide maintenant les partenaires des slots 1..byeCount et non les derniers
+    //     slots du pattern (identique sur un tableau de 16, différent sur 32) ;
+    //   • s'il y a plus d'exemptions que de poules, un 2e est exempté et choisit son
+    //     slot avant les 1ers, ce qui déplace aussi ces derniers.
+    // Quand aucune des deux ne joue (6 et 12 poules), le placement est bit à bit le même
+    // et les résultats restent valables : inutile de les jeter.
+    if (schema < 6 && regime(BRACKET_SCHEMA) === 'byes') {
+      const B = window.buildPrincipalSeeds({ pools, players, results }).bracketSize;
+      const byeCount = B - pools.length * 2;
+      const avant = Array.from({ length: byeCount }, (_, i) => B - i).sort((a, b) => a - b);
+      const apres = Array.from({ length: byeCount }, (_, i) => window.firstRoundOpponent(B, i + 1)).sort((a, b) => a - b);
+      const memesVides = JSON.stringify(avant) === JSON.stringify(apres);
+      if (!memesVides || byeCount > pools.length) return {};
+    }
     return raw;
   });
   React.useEffect(() => {
