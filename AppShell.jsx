@@ -346,12 +346,17 @@ const crossPoolCompare = (a, b) => {
 
 // Structure du tableau principal — source unique. Il n'y a jamais de barrage.
 //   B = nextPow2(qualifiés), missing = B − qualifiés
-//   missing == 0         → 'direct' : tableau exactement rempli (2, 4, 8, 16 poules)
-//   missing <= nb de 3es → 'thirds' : les `missing` MEILLEURS 3es (quotients inter-poules,
-//                          crossPoolCompare) complètent le tableau (3, 6, 7, 11 à 15 poules)
-//   sinon                → 'byes'   : pas assez de 3es, les `missing` places restent vides,
-//                          les TS dont le voisin de position est vide sont exemptées de 1er
-//                          tour (5, 9, 10 poules)
+//   missing == 0 → 'direct' : tableau exactement rempli (2, 4, 8, 16 poules)
+//   missing == 2 → 'thirds' : il ne manque que 2 joueurs, les 2 MEILLEURS 3es (quotients
+//                  inter-poules, crossPoolCompare) complètent le tableau (3, 7, 15 poules)
+//   sinon        → 'byes'   : les `missing` places restent vides et les TS dont le voisin
+//                  de position est vide sont exemptées de 1er tour (5, 6, 9 à 14 poules)
+//
+// Le régime NORMAL est 'byes' : les 3es vont en consolante et le 1er tour sert à ramener
+// l'effectif à une puissance de 2 pour le tour suivant. Repêcher des 3es est l'EXCEPTION,
+// réservée au trou de 2 places — c'est-à-dire aux effectifs en 2^k − 1 poules. Ne pas
+// relâcher la condition en `missing <= thirdsCount` : 6 poules (12 qualifiés, tableau de
+// 16, 4 places à combler) repêcherait 4 troisièmes au lieu de donner 4 exemptions.
 // Le tableau n'est jamais réduit : plus aucun 2e n'est éliminé.
 const computeBracketStructure = (autoQualifiers, thirdsCount) => {
   const nextPow2 = (n) => { let b = 1; while (b < n) b *= 2; return b; };
@@ -360,7 +365,8 @@ const computeBracketStructure = (autoQualifiers, thirdsCount) => {
   const bracketSize = nextPow2(autoQualifiers);
   const missing = bracketSize - autoQualifiers;
   if (missing === 0) return { ...base, bracketSize, mode: 'direct' };
-  if (missing <= thirdsCount) return { ...base, bracketSize, mode: 'thirds', thirdsQualified: missing };
+  // Faute de 2 troisièmes à repêcher (poules de 2), on retombe sur les exemptions.
+  if (missing === 2 && thirdsCount >= 2) return { ...base, bracketSize, mode: 'thirds', thirdsQualified: 2 };
   return { ...base, bracketSize, mode: 'byes', byeCount: missing };
 };
 
@@ -404,8 +410,11 @@ const resetTabPreferences = () => {
 //      du bracket, elle, peut ne pas bouger (7 poules : 14 éligibles → 12, toujours un
 //      tableau de 16), et le useEffect de resynchronisation ne remet à zéro que sur un
 //      changement de taille : sans ce v7, l'ancien placement serait rechargé tel quel.
-const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v7';
-const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2', 'consolante-seeds-v3', 'consolante-seeds-v4', 'consolante-seeds-v5', 'consolante-seeds-v6'];
+// v8 : le repêchage des 3es est restreint au trou de 2 places. De 6 et 11 à 14 poules,
+//      les 3es qui étaient retenus dans le principal reviennent tous en consolante : le
+//      nombre d'éligibles et donc la numérotation changent (6 poules : 8 éligibles → 12).
+const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v8';
+const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2', 'consolante-seeds-v3', 'consolante-seeds-v4', 'consolante-seeds-v5', 'consolante-seeds-v6', 'consolante-seeds-v7'];
 
 const clearConsolanteSeeds = () => {
   try {

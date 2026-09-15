@@ -20,7 +20,7 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=30"></script>
+<script type="text/babel" src="AppShell.jsx?v=31"></script>
 <script type="text/babel" src="PoolsScreen.jsx?v=19"></script>
 <script type="text/babel" src="BracketsScreen.jsx?v=20"></script>
 <script type="text/babel" src="ResultsScreen.jsx?v=15"></script>
@@ -363,7 +363,7 @@ const KnockoutScreen = ({ theme, players, pools, results, bracketResults, onUpda
 Object.assign(window, { KnockoutScreen });
 
 </script>
-<script type="text/babel" src="QualificationScreen.jsx?v=1"></script>
+<script type="text/babel" src="QualificationScreen.jsx?v=2"></script>
 <script type="text/babel" src="ConsolanteScreen.jsx?v=19"></script>
 
 <script type="text/babel">
@@ -421,19 +421,32 @@ const App = () => {
   //   3 : nouvelles tables de placement 8/16/32 et 2es placés en moitié opposée de leur
   //       1er — les ids `principal-r1-N` ne désignent plus les mêmes joueurs, purge
   //       dans tous les modes (le placement consolante est jeté par sa clé v5).
-  //   4 : plus de barrages, les meilleurs 3es complètent le tableau (mode 'thirds') —
-  //       purge si le tournoi courant est dans ce mode (les slots 2n+1..B changent de
-  //       joueurs) ; la clé `ertt-barrage-results` est supprimée.
+  //   4 : plus de barrages, les meilleurs 3es complètent le tableau (mode 'thirds') ;
+  //       la clé `ertt-barrage-results` est supprimée.
+  //   5 : le repêchage des 3es est restreint au trou de 2 places — de 6 et 11 à 14
+  //       poules, le tableau repasse aux exemptions de 1er tour.
   // Sans purge, buildIntegralBracket propagerait les copies de joueurs des anciens
   // résultats dans un tableau qui ne les contient plus à ces positions.
-  const BRACKET_SCHEMA = 4;
+  const BRACKET_SCHEMA = 5;
   const [bracketResults, setBracketResults] = React.useState(() => {
     const raw = loadState('ertt-bracket-results', {});
     const schema = loadState('ertt-bracket-schema', 1);
     if (schema >= BRACKET_SCHEMA) return raw;
+    // Avant le schéma 3, les tables de placement elles-mêmes ont changé : rien n'est
+    // récupérable, quel que soit le régime.
     if (schema < 3) return {};
-    const { struct } = window.buildPrincipalSeeds({ pools, players, results });
-    return struct.mode === 'thirds' ? {} : raw;
+    // Depuis, seule change la façon de combler les places manquantes. C'est elle qui
+    // détermine QUI occupe les slots, donc la validité des résultats enregistrés : on
+    // ne purge que si le régime du tournoi courant n'est plus celui de son schéma.
+    const thirdsCount = pools.filter(p => (p.playerIds || []).length >= 3).length;
+    const missing = window.buildPrincipalSeeds({ pools, players, results }).bracketSize - pools.length * 2;
+    const regime = (v) => {
+      if (missing === 0) return 'direct';
+      if (v <= 3) return missing * 2 <= thirdsCount ? 'barrage' : 'byes';
+      if (v === 4) return missing <= thirdsCount ? 'thirds' : 'byes';
+      return missing === 2 && thirdsCount >= 2 ? 'thirds' : 'byes';
+    };
+    return regime(schema) === regime(BRACKET_SCHEMA) ? raw : {};
   });
   React.useEffect(() => {
     saveState('ertt-bracket-schema', BRACKET_SCHEMA);
