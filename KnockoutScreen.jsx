@@ -1,0 +1,346 @@
+// KnockoutScreen — Tableau principal (n poules), classement intégral.
+// Il a longtemps vécu inline dans index.html et affichait AUSSI la consolante, d'où un
+// prop `type` valant 'principal' ou 'consolante' ; la consolante a son propre écran
+// (drag & drop du placement manuel) depuis, et ce prop a été retiré.
+// Composition, taille et numérotation : AppShell.buildPrincipalSeeds (mode 'byes' =
+// exemptés de 1er tour, mode 'thirds' = meilleurs 3es en complément)
+// Structure des tours et sous-tableaux : AppShell.buildIntegralBracket
+
+const KnockoutScreen = ({ theme, players, pools, results, bracketResults, onUpdateBracketResults, testMode }) => {
+  const t = window.THEMES[theme];
+  const [modal, setModal] = React.useState(null);
+  const [score, setScore] = React.useState({ p1: '', p2: '' });
+  const firstInputRef = React.useRef(null);
+  const saveBtnRef = React.useRef(null);
+
+  // Les tableaux se jouent TOUJOURS en 3 sets gagnants (best of 5). Le réglage
+  // `setsToWin` (2 ou 3) ne concerne QUE les matchs de poule — c'est voulu, ce n'est
+  // pas un oubli de câblage : ne pas le brancher ici.
+  const SETS_TO_WIN = 3;
+  const accentColor = '#20bf6b';
+  const title = 'Tableau principal';
+  // Préfixe des ids de match (`principal-r1-3`, `principal-p9-r2-1`…). Ne JAMAIS le
+  // changer : les résultats enregistrés dans `ertt-bracket-results` sont rangés sous ces
+  // ids, et la consolante utilise son propre préfixe depuis ConsolanteScreen.jsx.
+  const prefix = 'principal';
+
+  const autoWinner = (() => {
+    const s1 = parseInt(score.p1), s2 = parseInt(score.p2);
+    if (s1 === SETS_TO_WIN && s2 < SETS_TO_WIN) return 1;
+    if (s2 === SETS_TO_WIN && s1 < SETS_TO_WIN) return 2;
+    return null;
+  })();
+
+  // Dès que le vainqueur est désigné, le curseur passe sur « Enregistrer » : Entrée
+  // valide alors le match sans repasser par la souris. Même règle que la saisie de poule.
+  React.useEffect(() => {
+    if (modal && autoWinner) saveBtnRef.current?.focus();
+  }, [autoWinner, modal?.matchId]);
+
+  if (pools.length < 2) {
+    return (
+      <div style={{ padding: '60px', textAlign: 'center', color: t.textSecondary }}>
+        <i className="fas fa-sitemap" style={{ fontSize: 32, display: 'block', marginBottom: 12, opacity: .3 }}></i>
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Au moins 2 poules requises</div>
+        <div style={{ fontSize: 13 }}>Actuellement {pools.length} poule{pools.length !== 1 ? 's' : ''} configurée{pools.length !== 1 ? 's' : ''}</div>
+      </div>
+    );
+  }
+
+  // Tous les matchs de poule doivent être terminés avant de générer le tableau
+  let totalPoolMatches = 0, playedPoolMatches = 0;
+  pools.forEach(pool => {
+    const ids = pool.playerIds;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        totalPoolMatches++;
+        if (results[window.poolMatchKey(pool.id, ids[i], ids[j])]) playedPoolMatches++;
+      }
+    }
+  });
+  if (playedPoolMatches < totalPoolMatches) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ background: accentColor, color: '#fff', borderRadius: 6, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>{title}</span>
+        </div>
+        <div style={{ padding: '64px 24px', textAlign: 'center', background: t.cardBg, border: `1.5px dashed ${t.tableBorder}`, borderRadius: t.cardRadius, color: t.textSecondary }}>
+          <div style={{ width: 64, height: 64, margin: '0 auto 18px', borderRadius: '50%', background: `${accentColor}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <i className="fas fa-hourglass-half" style={{ fontSize: 26, color: accentColor }}></i>
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>
+            {title} pas encore disponible
+          </div>
+          <div style={{ fontSize: 13, maxWidth: 380, margin: '0 auto 20px', lineHeight: 1.5 }}>
+            Termine tous les matchs de poules pour que les classements soient figés et que le {title.toLowerCase()} puisse être généré.
+          </div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 16, padding: '12px 20px', borderRadius: 10, background: t.tableHeaderBg, fontSize: 12 }}>
+            <span><i className="fas fa-table-tennis-paddle-ball" style={{ marginRight: 6, opacity: 0.5 }}></i><strong style={{ color: t.textPrimary }}>{playedPoolMatches}</strong> / {totalPoolMatches} matchs joués</span>
+            <span style={{ width: 1, height: 14, background: t.tableBorder }}></span>
+            <span><i className="fas fa-layer-group" style={{ marginRight: 6, opacity: 0.5 }}></i><strong style={{ color: t.textPrimary }}>{pools.length}</strong> poule{pools.length > 1 ? 's' : ''}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Composition du tableau — source unique (AppShell.buildPrincipalSeeds) :
+  // 1ers, 2es, meilleurs 3es, placés selon buildSeedingPattern.
+  const { struct, bracketSize, seeds } = window.buildPrincipalSeeds({ pools, players, results });
+
+  // Classement intégral (AppShell.buildIntegralBracket) : les perdants de chaque tour
+  // retombent dans un sous-tableau parallèle. En mode 'byes', un slot vide en R1 est un
+  // exempté : l'adversaire passe d'office (même mécanique que la consolante). Dans les
+  // autres modes le tableau est plein ; un slot vide (poule incomplète) n'avance pas.
+  const bracketOptions = { byes: struct.mode === 'byes' };
+  const { groups, totalRounds, descendants } = window.buildIntegralBracket(seeds, prefix, bracketResults, bracketOptions);
+
+  // Une colonne par tour ; dans la colonne, l'épine principale en haut puis les
+  // sous-tableaux par place croissante (« Places 5 à 8 », « Places 9 à 12 »…).
+  const columns = Array.from({ length: totalRounds }, (_, i) => ({
+    round: i + 1,
+    groups: groups.filter(g => g.round === i + 1).sort((a, b) => a.startPlace - b.startPlace),
+  }));
+  // Matchs réellement jouables : ceux sans bye. Les drapeaux bye1/bye2 sont connus dès la
+  // construction, résultats ou pas (un bye se propage sans dépendre des scores).
+  const playableMatches = groups.reduce((acc, g) => acc + g.matches.filter(m => !m.bye1 && !m.bye2).length, 0);
+  const hasPendingMatch = groups.some(g => g.matches.some(m => m.p1 && m.p2 && !bracketResults[m.id]));
+
+  // Données de test : scores aléatoires sur tous les matchs restants (les résultats
+  // déjà saisis sont conservés). Tour par tour, puisque chaque tour dépend du précédent.
+  // Même bouton que la consolante ; byes uniquement en mode 'byes' (cf. bracketOptions).
+  const generateScores = () => {
+    onUpdateBracketResults(prev => {
+      const next = { ...prev };
+      let b = window.buildIntegralBracket(seeds, prefix, next, bracketOptions);
+      for (let round = 1; round <= b.totalRounds; round++) {
+        b.groups.filter(g => g.round === round).forEach(g => g.matches.forEach(m => {
+          if (!m.p1 || !m.p2 || next[m.id]) return;
+          const winner = Math.random() < 0.5 ? 1 : 2;
+          const loserSets = Math.floor(Math.random() * SETS_TO_WIN);
+          next[m.id] = { p1: m.p1, p2: m.p2, winner, score1: winner === 1 ? SETS_TO_WIN : loserSets, score2: winner === 2 ? SETS_TO_WIN : loserSets };
+        }));
+        b = window.buildIntegralBracket(seeds, prefix, next, bracketOptions);
+      }
+      return next;
+    });
+  };
+
+  // Nom du round selon position dans le bracket
+  const roundLabel = (roundIdx, total) => {
+    const fromEnd = total - 1 - roundIdx;
+    if (fromEnd === 0) return 'Finale';
+    if (fromEnd === 1) return 'Demi-finales';
+    if (fromEnd === 2) return 'Quarts de finale';
+    if (fromEnd === 3) return 'Huitièmes de finale';
+    return `${Math.pow(2, fromEnd)}e de finale`;
+  };
+
+  // Modal
+  const openModal = (matchId, p1, p2) => {
+    if (!p1 || !p2) return;
+    const ex = bracketResults[matchId];
+    setScore({ p1: ex ? String(ex.score1) : '', p2: ex ? String(ex.score2) : '' });
+    setModal({ matchId, p1, p2 });
+    setTimeout(() => firstInputRef.current?.focus(), 50);
+  };
+
+  const saveResult = () => {
+    if (!autoWinner || !modal) return;
+    onUpdateBracketResults(prev => ({
+      ...prev,
+      [modal.matchId]: { p1: modal.p1, p2: modal.p2, winner: autoWinner, score1: parseInt(score.p1), score2: parseInt(score.p2) },
+    }));
+    setModal(null);
+  };
+
+  // Effacer un résultat efface aussi tout ce qui en découle : avec le classement
+  // intégral, un match alimente DEUX branches (vainqueur et perdant), et un résultat
+  // orphelin afficherait des scores sur des joueurs qui ne sont plus là.
+  const clearResult = (matchId, e) => {
+    e.stopPropagation();
+    onUpdateBracketResults(prev => {
+      const n = { ...prev };
+      delete n[matchId];
+      (descendants[matchId] || []).forEach(id => { delete n[id]; });
+      return n;
+    });
+  };
+
+  // Composants visuels
+  // `gold` : le vainqueur de la finale a une coupe en or, les autres la couleur de l'écran
+  const PlayerRow = ({ player, isWinner, sc, isBye, gold }) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: isWinner ? `${accentColor}15` : 'transparent', opacity: player ? 1 : 0.35 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        {isWinner && <i className="fas fa-trophy" style={{ color: gold ? '#FFA500' : accentColor, fontSize: gold ? 12 : 10 }}></i>}
+        <span style={{ fontSize: 12, fontWeight: isWinner ? 700 : 500, color: t.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 130 }}>
+          {player ? player.name : (isBye ? '— Exempt —' : '—')}
+        </span>
+      </div>
+      {sc !== undefined && sc !== '' && (
+        <span style={{ fontSize: 12, fontWeight: 700, color: isWinner ? accentColor : t.textSecondary, flexShrink: 0 }}>{sc}</span>
+      )}
+    </div>
+  );
+
+  const MatchCard = ({ match, isHighlight, customLabel }) => {
+    const r = bracketResults[match.id];
+    const winner = r?.winner;
+    const canPlay = match.p1 && match.p2;
+    // Exempté (mode byes, à n'importe quel tour) : le match ne se joue pas, l'autre passe
+    const isByeMatch = match.bye1 || match.bye2;
+    return (
+      <div onClick={() => canPlay && openModal(match.id, match.p1, match.p2)}
+        style={{ background: t.cardBg, border: `1.5px solid ${isHighlight ? accentColor : t.tableBorder}`, borderRadius: t.cardRadius, overflow: 'hidden', cursor: canPlay ? 'pointer' : 'default', boxShadow: isHighlight ? `0 0 0 3px ${accentColor}25` : t.cardShadow, minWidth: 170, userSelect: 'none', opacity: isByeMatch ? 0.6 : 1 }}>
+        {(isHighlight || r || customLabel) && (
+          <div style={{ padding: '4px 10px', background: isHighlight ? accentColor : t.tableHeaderBg, borderBottom: `1px solid ${t.tableBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {(isHighlight || customLabel) && <span style={{ fontSize: 10, fontWeight: 700, color: isHighlight ? '#fff' : t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px' }}>{isHighlight ? 'Finale' : customLabel}</span>}
+            {!isHighlight && !customLabel && <span></span>}
+            {r && <button onClick={e => clearResult(match.id, e)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: isHighlight ? 'rgba(255,255,255,.7)' : t.textSecondary, fontSize: 10, padding: 0 }}><i className="fas fa-times"></i></button>}
+          </div>
+        )}
+        <PlayerRow player={match.p1} isWinner={winner === 1} sc={r?.score1} isBye={match.bye1} gold={isHighlight} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px' }}>
+          <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
+          <span style={{ fontSize: 9, fontWeight: 700, color: t.textSecondary, opacity: 0.5, letterSpacing: '.5px' }}>VS</span>
+          <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
+        </div>
+        <PlayerRow player={match.p2} isWinner={winner === 2} sc={r?.score2} isBye={match.bye2} gold={isHighlight} />
+      </div>
+    );
+  };
+
+  const ColHeader = ({ label }) => (
+    <div style={{ fontSize: 10, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10, whiteSpace: 'nowrap' }}>{label}</div>
+  );
+
+  // Intitulé d'un sous-tableau de classement, au-dessus de son bloc de matchs
+  const GroupLabel = ({ label, accent }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0 8px' }}>
+      <span style={{ fontSize: 10, fontWeight: 700, color: accent ? accentColor : t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', whiteSpace: 'nowrap' }}>{label}</span>
+      <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
+    </div>
+  );
+
+  // Encadré d'un bloc de matchs de classement
+  const boxStyle = { padding: 14, border: `1.5px solid ${t.tableBorder}`, borderRadius: t.cardRadius, background: '#e9ebee' };
+
+  // Un groupe = un tour d'un sous-tableau. L'épine principale (places 1..) garde le
+  // nom du tour en en-tête de colonne ; les sous-tableaux portent leur intitulé
+  // (« Places 9 à 16 »…) et leurs matchs terminaux leur étiquette (« Places 5e/6e »).
+  const renderGroup = (g) => {
+    const isSpine = g.startPlace === 1;
+    const isFinal = isSpine && g.size === 2;
+    const terminal = g.size === 2;
+    const label = window.placementLabel(g);
+    return (
+      <div key={g.key} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {!isSpine && !terminal && <GroupLabel label={label} />}
+        {g.matches.map(m => (
+          <MatchCard key={m.id} match={m} isHighlight={isFinal}
+            customLabel={terminal && !isFinal ? label : undefined} />
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ background: accentColor, color: '#fff', borderRadius: 6, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>{title}</span>
+        <span style={{ fontSize: 12, color: t.textSecondary }}>
+          {pools.length} poules · tableau de {bracketSize}
+          {struct.mode === 'byes' && ` · ${struct.byeCount} exempté${struct.byeCount > 1 ? 's' : ''} de 1er tour`}
+          {' '}· classement intégral · {totalRounds} tour{totalRounds > 1 ? 's' : ''} · {playableMatches} match{playableMatches > 1 ? 's' : ''}
+          {struct.mode !== 'byes' && ` (${totalRounds} par joueur)`}
+        </span>
+        <span style={{ fontSize: 12, color: t.textSecondary }}>· Cliquez sur un match pour entrer le résultat</span>
+        {/* Données de test : réservé au mode test (bascule dans la sidebar) */}
+        {testMode && (
+          <div style={{ marginLeft: 'auto' }}>
+            <button onClick={generateScores} disabled={!hasPendingMatch}
+              style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: hasPendingMatch ? accentColor : t.tableBorder, color: hasPendingMatch ? '#fff' : t.textSecondary, fontWeight: 600, fontSize: 12, cursor: hasPendingMatch ? 'pointer' : 'default' }}>
+              <i className="fas fa-dice" style={{ marginRight: 6 }}></i>Générer les scores
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Une colonne par tour, N/2 matchs par colonne : tout ce qui est dans une
+          même colonne se joue en même temps. Dans chaque colonne, l'épine principale
+          (8es → finale) en haut, puis, nettement détachés et encadrés, les sous-tableaux de classement. */}
+      <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', overflowX: 'auto', paddingBottom: 12 }}>
+        {columns.map((col, cIdx) => {
+          const spine = col.groups.filter(g => g.startPlace === 1);
+          const placement = col.groups.filter(g => g.startPlace !== 1);
+          return (
+            <div key={col.round} style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, minWidth: 185 }}>
+              <ColHeader label={roundLabel(cIdx, totalRounds)} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                {spine.map(renderGroup)}
+              </div>
+              {/* Matchs de classement, bien détachés de l'épine (grand espace). Chaque
+                  sous-tableau encore ouvert (« Places 5 à 8 », « Places 9 à 12 »…) a son
+                  propre encadré ; les matchs de place terminaux (3e/4e, 5e/6e…) partagent
+                  un seul encadré. */}
+              {placement.length > 0 && (
+                <div style={{ marginTop: 64, display: 'flex', flexDirection: 'column', gap: 18 }}>
+                  {placement.filter(g => g.size > 2).map(g => (
+                    <div key={g.key} style={boxStyle}>{renderGroup(g)}</div>
+                  ))}
+                  {placement.some(g => g.size === 2) && (
+                    <div style={{ ...boxStyle, display: 'flex', flexDirection: 'column', gap: 18 }}>
+                      {placement.filter(g => g.size === 2).map(renderGroup)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Modal saisie scores */}
+      {modal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }} onClick={() => setModal(null)}>
+          <div style={{ background: t.cardBg, borderRadius: 16, padding: 28, width: 320, boxShadow: '0 16px 48px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: t.textPrimary, marginBottom: 20 }}>Entrer le résultat</div>
+
+            {[{ key: 'p1', player: modal.p1 }, { key: 'p2', player: modal.p2 }].map(({ key, player }) => (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                <div style={{ flex: 1, fontSize: 14, fontWeight: 600, color: t.textPrimary }}>{player.name}</div>
+                <input type="number" min="0" max="3" value={score[key]}
+                  onChange={e => setScore(s => ({ ...s, [key]: e.target.value }))}
+                  ref={key === 'p1' ? firstInputRef : null}
+                  style={{ width: 56, padding: '8px', borderRadius: 8, border: `1.5px solid ${t.inputBorder}`, background: t.inputBg, fontSize: 22, fontWeight: 700, textAlign: 'center', color: t.textPrimary, outline: 'none' }} />
+              </div>
+            ))}
+
+            {autoWinner && (
+              <div style={{ padding: '10px 14px', borderRadius: 10, background: `${accentColor}12`, border: `1px solid ${accentColor}40`, textAlign: 'center', margin: '8px 0 16px' }}>
+                <i className="fas fa-trophy" style={{ color: '#FFA500', marginRight: 6 }}></i>
+                <span style={{ fontWeight: 700, fontSize: 14, color: t.textPrimary }}>
+                  {autoWinner === 1 ? modal.p1.name : modal.p2.name}
+                </span>
+                <span style={{ fontSize: 13, color: t.textSecondary, marginLeft: 4 }}>gagne le match</span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, marginTop: autoWinner ? 0 : 16 }}>
+              <button onClick={() => setModal(null)} style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                Annuler
+              </button>
+              <button ref={saveBtnRef} onClick={saveResult} disabled={!autoWinner}
+                style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: autoWinner ? accentColor : t.tableBorder, color: '#fff', fontWeight: 700, fontSize: 13, cursor: autoWinner ? 'pointer' : 'not-allowed', opacity: autoWinner ? 1 : 0.5 }}>
+                <i className="fas fa-save" style={{ marginRight: 6 }}></i>Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+Object.assign(window, { KnockoutScreen });
+

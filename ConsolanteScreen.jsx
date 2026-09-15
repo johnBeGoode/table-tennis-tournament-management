@@ -78,6 +78,9 @@ const ConsolanteScreen = ({ theme, players, pools, results, bracketResults, onUp
   const [score, setScore] = React.useState({ p1: '', p2: '' });
   const firstInputRef = React.useRef(null);
   const saveBtnRef = React.useRef(null);
+  // Les tableaux se jouent TOUJOURS en 3 sets gagnants (best of 5). Le réglage
+  // `setsToWin` (2 ou 3) ne concerne QUE les matchs de poule — c'est voulu, ce n'est
+  // pas un oubli de câblage : ne pas le brancher ici.
   const SETS_TO_WIN = 3;
 
 
