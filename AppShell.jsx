@@ -34,7 +34,7 @@ const NAV_ITEMS = [
   { id: 'poules',     label: 'Poules',             icon: 'fas fa-layer-group' },
   { id: 'resultats',  label: 'Résultats',           icon: 'fas fa-table-tennis-paddle-ball' },
   { id: 'brackets',   label: 'Classements',         icon: 'fas fa-sitemap' },
-  { id: 'barrage',    label: 'Barrages',            icon: 'fas fa-code-branch' },
+  { id: 'qualification', label: 'Qualification',    icon: 'fas fa-user-check' },
   { id: 'principal',  label: 'Tableau principal',   icon: 'fas fa-trophy' },
   { id: 'consolante', label: 'Consolante',          icon: 'fas fa-shield-halved' },
 ];
@@ -344,22 +344,23 @@ const crossPoolCompare = (a, b) => {
   return 0; // égalité persistante — départage par tirage au sort (hors scope du tri auto)
 };
 
-// Structure du tableau principal — source unique.
+// Structure du tableau principal — source unique. Il n'y a jamais de barrage.
 //   B = nextPow2(qualifiés), missing = B − qualifiés
-//   missing == 0           → 'direct'  : tableau exactement rempli (2, 4, 8, 16 poules)
-//   missing*2 <= nb de 3es → 'barrage' : `missing` barrages entre 3es, chacun consomme
-//                            2 troisièmes (7, 13, 14, 15 poules)
-//   sinon                  → 'byes'    : tous les 1ers et 2es sont qualifiés, les `missing`
-//                            meilleurs (TS 1..k) sont exemptés de 1er tour (3, 5, 6, 9 à 12 poules)
+//   missing == 0         → 'direct' : tableau exactement rempli (2, 4, 8, 16 poules)
+//   missing <= nb de 3es → 'thirds' : les `missing` MEILLEURS 3es (quotients inter-poules,
+//                          crossPoolCompare) complètent le tableau (3, 6, 7, 11 à 15 poules)
+//   sinon                → 'byes'   : pas assez de 3es, les `missing` places restent vides,
+//                          les TS dont le voisin de position est vide sont exemptées de 1er
+//                          tour (5, 9, 10 poules)
 // Le tableau n'est jamais réduit : plus aucun 2e n'est éliminé.
 const computeBracketStructure = (autoQualifiers, thirdsCount) => {
   const nextPow2 = (n) => { let b = 1; while (b < n) b *= 2; return b; };
-  const base = { barrageCount: 0, byeCount: 0 };
+  const base = { thirdsQualified: 0, byeCount: 0 };
   if (!(autoQualifiers >= 2)) return { ...base, bracketSize: 2, mode: 'direct' };   // 0 poule
   const bracketSize = nextPow2(autoQualifiers);
   const missing = bracketSize - autoQualifiers;
   if (missing === 0) return { ...base, bracketSize, mode: 'direct' };
-  if (missing * 2 <= thirdsCount) return { ...base, bracketSize, mode: 'barrage', barrageCount: missing };
+  if (missing <= thirdsCount) return { ...base, bracketSize, mode: 'thirds', thirdsQualified: missing };
   return { ...base, bracketSize, mode: 'byes', byeCount: missing };
 };
 
@@ -397,9 +398,14 @@ const resetTabPreferences = () => {
 // placement construit avec l'ancienne règle doit être jeté, pas rechargé.
 // v4 : la catégorie « 2e éliminé » a disparu (mode 'byes' à la place d'eliminate).
 // v5 : nouvelles tables 8, 16 et 32 et placement des 4es en moitié opposée de leur 3e.
-// v6 : numérotation par ordre des poules pour tous les 3es (perdants de barrage compris).
-const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v6';
-const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2', 'consolante-seeds-v3', 'consolante-seeds-v4', 'consolante-seeds-v5'];
+// v6 : numérotation par ordre des poules pour tous les 3es.
+// v7 : plus de barrages — les 3es retenus dans le tableau principal (mode 'thirds')
+//      sortent des éligibles, donc la numérotation des 3es restants change. La taille
+//      du bracket, elle, peut ne pas bouger (7 poules : 14 éligibles → 12, toujours un
+//      tableau de 16), et le useEffect de resynchronisation ne remet à zéro que sur un
+//      changement de taille : sans ce v7, l'ancien placement serait rechargé tel quel.
+const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v7';
+const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2', 'consolante-seeds-v3', 'consolante-seeds-v4', 'consolante-seeds-v5', 'consolante-seeds-v6'];
 
 const clearConsolanteSeeds = () => {
   try {
@@ -459,7 +465,9 @@ const firstRoundOpponent = (size, seed) => {
 // déjà placés [{ poolId, slot }] (slot = numéro de seed dans le pattern), `block` =
 // [{ poolId }] dans l'ordre de numérotation, `[from, to]` = seeds du pattern réservés
 // au bloc (exactement un par entrée). Renvoie le slot de chaque entrée du bloc.
-// Objectif : chaque entrée doit rencontrer l'ancre de sa poule le plus tard possible.
+// Objectif : chaque entrée doit rencontrer les ancres de sa poule le plus tard possible
+// (une poule peut avoir plusieurs ancres : son 1er et son 2e quand on place un 3e ; les
+// coûts s'additionnent).
 // Ce n'est pas un glouton (l'ordre de passage ferait perdre à une poule le dernier
 // slot de la bonne moitié) mais une affectation exacte par programmation dynamique
 // sur les sous-ensembles de slots (≤ 16 entrées → ≤ 65 536 états). Coût d'une entrée
@@ -469,15 +477,20 @@ const firstRoundOpponent = (size, seed) => {
 // À coût égal, le plus petit slot (dans l'ordre des entrées) : quand le tableau est
 // plein, les tables 8, 16 et 32 rendent l'identité (2e de la poule i → slot n + i).
 // Vérifié pour 2 à 16 poules : toutes les paires 1er/2e ne se croisent qu'en finale.
-// Mémo à une entrée : buildPrincipalSeeds est appelé à chaque rendu par plusieurs
-// écrans, et 16 entrées ancrées coûtent ~10 ms — les mêmes arguments rendent le même
-// résultat.
-let partnerSlotsCache = { key: null, value: null };
+// Mémo : buildPrincipalSeeds est appelé à chaque rendu par plusieurs écrans, et 16
+// entrées ancrées coûtent ~10 ms — les mêmes arguments rendent le même résultat. Il
+// faut PLUSIEURS entrées : un même rendu appelle la fonction deux fois (les 2es, puis
+// les 3es retenus en mode 'thirds'), et la consolante l'appelle encore pour ses 4es —
+// un mémo à une seule entrée manquerait à tous les coups.
+const PARTNER_SLOTS_CACHE_MAX = 8;
+const partnerSlotsCache = new Map();
 const assignPartnerSlots = (size, anchors, block, [from, to]) => {
   const key = JSON.stringify([size, anchors.map(a => [a.poolId, a.slot]), block.map(e => e.poolId), from, to]);
-  if (partnerSlotsCache.key === key) return partnerSlotsCache.value;
+  if (partnerSlotsCache.has(key)) return partnerSlotsCache.get(key);
   const value = computePartnerSlots(size, anchors, block, [from, to]);
-  partnerSlotsCache = { key, value };
+  // Éviction de la plus ancienne entrée : Map itère dans l'ordre d'insertion.
+  if (partnerSlotsCache.size >= PARTNER_SLOTS_CACHE_MAX) partnerSlotsCache.delete(partnerSlotsCache.keys().next().value);
+  partnerSlotsCache.set(key, value);
   return value;
 };
 
@@ -488,10 +501,10 @@ const computePartnerSlots = (size, anchors, block, [from, to]) => {
   if (m === 0 || slots.length !== m) return block.map((_, i) => slots[i] ?? null);
   const finalRound = Math.round(Math.log2(size));
   const cost = block.map(entry => {
-    const anchor = anchors.find(a => a.poolId === entry.poolId);
-    if (!anchor) return slots.map(() => 0);
-    const anchorPos = patternIndex(size, anchor.slot);
-    return slots.map(s => Math.pow(size, finalRound - meetingRound(anchorPos, patternIndex(size, s))));
+    const mine = anchors.filter(a => a.poolId === entry.poolId);
+    if (mine.length === 0) return slots.map(() => 0);
+    const anchorPos = mine.map(a => patternIndex(size, a.slot));
+    return slots.map(s => anchorPos.reduce((acc, pos) => acc + Math.pow(size, finalRound - meetingRound(pos, patternIndex(size, s))), 0));
   });
   // best[mask] = coût minimal pour placer les entrées restantes (l'entrée courante est
   // popcount(mask)) sur les slots hors mask ; choice[mask] = slot retenu pour elle.
@@ -521,25 +534,26 @@ const computePartnerSlots = (size, anchors, block, [from, to]) => {
 // --- Tableau principal : qualifiés et placement --------------------------------
 // Source unique de la composition du tableau principal. Renvoie :
 //   seeds    : joueurs dans l'ORDRE DES POSITIONS du tableau (via buildSeedingPattern) ;
-//              null = slot vide (barrage en attente en mode 'barrage', bye en mode 'byes')
+//              null = slot vide (bye en mode 'byes')
 //   seedList : une entrée par numéro de TS, dans l'ordre : { seed, slot, player, poolId,
-//              poolRank (1 | 2 | 3 = vainqueur de barrage), bye } ; player = null tant
-//              qu'un barrage n'est pas joué ; bye = exempté de 1er tour ; slot = numéro
-//              de seed du pattern où la TS est placée (= seed sauf pour les 2es d'un
-//              tableau non plein, cf. ci-dessous)
+//              poolRank (1 | 2 | 3 = meilleur 3e), bye } ; bye = exempté de 1er tour ;
+//              slot = numéro de seed du pattern où la TS est placée (= seed sauf pour les
+//              2es et 3es d'un tableau non plein, cf. ci-dessous)
+//   thirds   : les 3es retenus (mode 'thirds'), dans l'ordre des poules, [{ player, poolId }]
 // Numérotation des TS — ORDRE DES POULES dans tous les modes, jamais au mérite (les
 // statistiques ne classent qu'à l'intérieur d'une poule) : 1er de A = TS1, 1er de B =
-// TS2, …, puis les 2es dans le même ordre (2e de A = TS n+1), puis les vainqueurs de
-// barrage (slot FIXE par barrage : un barrage non joué laisse son slot vide au lieu de
-// décaler les autres).
-// Placement : les 1ers et les vainqueurs de barrage sont placés à leur numéro. Les 2es
-// occupent les seeds n+1..2n du pattern, mais pas forcément à leur numéro : le 1er et
-// le 2e d'une même poule doivent se rejouer le plus tard possible (moitiés opposées),
-// ce que assignPartnerSlots garantit. Tableau plein (4, 8, 16 poules) : slot = numéro.
+// TS2, …, puis les 2es dans le même ordre (2e de A = TS n+1), puis les meilleurs 3es
+// retenus, eux aussi dans l'ordre des poules (TS 2n+1..B). Le mérite inter-poules
+// (crossPoolCompare, Art. II.109 FFTT) ne sert qu'à CHOISIR quels 3es sont retenus.
+// Placement : les 1ers sont placés à leur numéro. Les 2es occupent les seeds n+1..2n du
+// pattern, mais pas forcément à leur numéro : le 1er et le 2e d'une même poule doivent
+// se rejouer le plus tard possible (moitiés opposées), ce que assignPartnerSlots
+// garantit. Les 3es retenus occupent de même les seeds 2n+1..B, le plus loin possible du
+// 1er ET du 2e de leur poule. Tableau plein (4, 8, 16 poules) : slot = numéro.
 // Mode 'byes' : les seeds 2n+1..B sont vides, une TS dont le voisin de position est
 // vide est exemptée de 1er tour — ce n'est pas « les meilleurs », c'est le pattern.
 // Les joueurs renvoyés sont les objets de classement de poule ({ id, name, v, d, sf… }).
-const buildPrincipalSeeds = ({ pools, players, results, barrageResults }) => {
+const buildPrincipalSeeds = ({ pools, players, results }) => {
   const n = pools.length;
   const standings = pools.map(pool => ({ pool, st: poolStandings(pool, players, results) }));
   // poolStandings ne renvoie pas poolId : on le capture ici.
@@ -547,24 +561,18 @@ const buildPrincipalSeeds = ({ pools, players, results, barrageResults }) => {
     .map(({ pool, st }) => (st[rank] ? { player: st[rank], poolId: pool.id } : null))
     .filter(Boolean);
   const firstEntries = atRank(0), secondEntries = atRank(1), thirdEntries = atRank(2);
-  // Seul usage du mérite inter-poules : choisir les 3es qui disputent les barrages.
-  const byMerit = (a, b) => crossPoolCompare(a.player, b.player);
 
   const struct = computeBracketStructure(n * 2, thirdEntries.length);
   const bracketSize = struct.bracketSize;
 
-  // Barrages (mode 'barrage') : mêmes paires que BarrageScreen (id `barrage-{poolIdA}-{poolIdB}`)
-  const eligible = struct.mode === 'barrage' ? [...thirdEntries].sort(byMerit).slice(0, struct.barrageCount * 2) : [];
-  const barrageMatches = [];
-  for (let i = 0; i + 1 < eligible.length; i += 2) {
-    const a = eligible[i], b = eligible[i + 1];
-    barrageMatches.push({ id: `barrage-${a.poolId}-${b.poolId}`, p1: a.player, p2: b.player });
-  }
-  const barrageWinners = barrageMatches.map(m => {
-    const r = barrageResults?.[m.id];
-    if (!r) return null;
-    return r.winner === 1 ? r.p1 : r.p2;
-  });
+  // Meilleurs 3es (mode 'thirds') : choisis au mérite inter-poules, puis remis dans
+  // l'ordre des poules pour la numérotation.
+  const poolIndex = {};
+  pools.forEach((pool, i) => { poolIndex[pool.id] = i; });
+  const thirds = struct.mode === 'thirds'
+    ? [...thirdEntries].sort((a, b) => crossPoolCompare(a.player, b.player)).slice(0, struct.thirdsQualified)
+        .sort((a, b) => poolIndex[a.poolId] - poolIndex[b.poolId])
+    : [];
 
   // Numérotation (ordre des poules) : numéro de TS → { player, poolId, poolRank, slot }
   const seedMap = {};
@@ -572,16 +580,16 @@ const buildPrincipalSeeds = ({ pools, players, results, barrageResults }) => {
   const anchors = firstEntries.map((e, i) => ({ poolId: e.poolId, slot: i + 1 }));
   const secondSlots = assignPartnerSlots(bracketSize, anchors, secondEntries, [n + 1, n + secondEntries.length]);
   secondEntries.forEach((e, i) => { seedMap[n + i + 1] = { ...e, poolRank: 2, slot: secondSlots[i] }; });
-  barrageWinners.forEach((p, i) => {
-    const seed = n + secondEntries.length + i + 1;
-    if (p) seedMap[seed] = { player: p, poolId: null, poolRank: 3, slot: seed };
-  });
+  const thirdsFrom = n + secondEntries.length + 1;
+  const thirdAnchors = [...anchors, ...secondEntries.map((e, i) => ({ poolId: e.poolId, slot: secondSlots[i] }))];
+  const thirdSlots = assignPartnerSlots(bracketSize, thirdAnchors, thirds, [thirdsFrom, thirdsFrom + thirds.length - 1]);
+  thirds.forEach((e, i) => { seedMap[thirdsFrom + i] = { ...e, poolRank: 3, slot: thirdSlots[i] }; });
 
   // Placement : seed du pattern → entrée
   const slotMap = {};
   Object.values(seedMap).forEach(e => { slotMap[e.slot] = e; });
 
-  const qualifiedCount = n + secondEntries.length + barrageMatches.length;
+  const qualifiedCount = n + secondEntries.length + thirds.length;
   const seedList = Array.from({ length: qualifiedCount }, (_, i) => {
     const seed = i + 1, e = seedMap[seed];
     const slot = e?.slot ?? seed;
@@ -598,27 +606,7 @@ const buildPrincipalSeeds = ({ pools, players, results, barrageResults }) => {
 
   const seeds = buildSeedingPattern(bracketSize).map(seedNum => slotMap[seedNum]?.player || null);
   const firsts = firstEntries.map(e => e.player), seconds = secondEntries.map(e => e.player);
-  return { struct, bracketSize, seeds, seedList, firsts, seconds, barrageWinners, barrageMatches };
-};
-
-// Purge des résultats de barrage périmés. Un résultat n'est valable que si le
-// barrage existe encore (même id `barrage-{poolIdA}-{poolIdB}`) ET s'il oppose
-// encore les mêmes joueurs, dans le même ordre (p1/p2 sont des copies : sans ce
-// contrôle, un 3e détrôné par une correction de poule resterait « vainqueur »
-// et serait placé dans le tableau principal). Renvoie l'objet d'origine si rien
-// n'est à jeter, pour ne pas déclencher de re-rendu inutile.
-const pruneBarrageResults = (barrageResults, { pools, players, results }) => {
-  const { barrageMatches } = buildPrincipalSeeds({ pools, players, results, barrageResults: {} });
-  const expected = {};
-  barrageMatches.forEach(m => { expected[m.id] = m; });
-  const stale = Object.keys(barrageResults || {}).filter(id => {
-    const r = barrageResults[id], m = expected[id];
-    return !m || r?.p1?.id !== m.p1.id || r?.p2?.id !== m.p2.id;
-  });
-  if (stale.length === 0) return barrageResults;
-  const next = { ...barrageResults };
-  stale.forEach(id => delete next[id]);
-  return next;
+  return { struct, bracketSize, seeds, seedList, firsts, seconds, thirds };
 };
 
 // --- Classement intégral (feuilles FFTT « KO Clt Int ») --------------------------
@@ -637,8 +625,8 @@ const pruneBarrageResults = (barrageResults, { pools, players, results }) => {
 // sera jamais rempli, l'adversaire passe d'office et le bye se propage dans la branche
 // des perdants (bye contre bye = bye, les places du bas restent vides). Utilisé par la
 // consolante (jamais pleine) et par le tableau principal en mode 'byes' (exemptés).
-// Sans cette option (principal en mode 'barrage'), un slot vide est un barrage en
-// attente : rien n'avance. Ne JAMAIS passer byes:true en mode 'barrage'.
+// Sans cette option, un slot vide n'avance pas (tableau incomplet : une poule sans
+// assez de joueurs, par exemple).
 //
 // Renvoie { groups, places, totalRounds, descendants } :
 //   groups      : [{ key, startPlace, endPlace, size, round, matches: [{ id, p1, p2, bye1, bye2 }] }]
@@ -780,4 +768,4 @@ const randomPlayers = (count) => {
   });
 };
 
-Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, poolCompare, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, buildPrincipalSeeds, pruneBarrageResults, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });
+Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, poolCompare, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });

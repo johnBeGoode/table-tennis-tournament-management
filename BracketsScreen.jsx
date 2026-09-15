@@ -1,7 +1,7 @@
 // BracketsScreen — Standings des poules et classements du tableau (lecture seule, calculé depuis résultats)
-// Reçoit: theme, players, pools, results, barrageResults, bracketResults
+// Reçoit: theme, players, pools, results, bracketResults
 
-const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracketResults }) => {
+const BracketsScreen = ({ theme, players, pools, results, bracketResults }) => {
   const t = window.THEMES[theme];
   // Sous-onglet mémorisé : on retrouve Poules / Tab principal / Classement final
   // tel qu'on l'a laissé en revenant sur l'écran (ou après rechargement).
@@ -112,7 +112,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
   if (subTab === 'final') {
     // Places finales du tableau principal (classement intégral) : mêmes seeds et même
     // structure que KnockoutScreen, via les helpers partagés — aucune logique dupliquée ici.
-    const { struct, bracketSize, seeds, seedList } = window.buildPrincipalSeeds({ pools, players, results, barrageResults });
+    const { struct, bracketSize, seeds, seedList } = window.buildPrincipalSeeds({ pools, players, results });
     const { places, totalRounds } = window.buildIntegralBracket(seeds, 'principal', bracketResults || {}, { byes: struct.mode === 'byes' });
 
     // En mode byes, un exempté ne « bat » personne : les places au-delà des qualifiés
@@ -211,16 +211,16 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
     const allStats = buildStats();
 
     // Composition et numérotation des TS : source unique (AppShell.buildPrincipalSeeds) —
-    // ordre des poules dans tous les modes (1ers puis 2es), jamais au mérite.
+    // ordre des poules dans tous les modes (1ers, 2es, puis meilleurs 3es), jamais au mérite.
     // On ne fait ici que rhabiller chaque TS avec ses stats de poule (poule · rang, V, D).
-    const { struct, seedList } = window.buildPrincipalSeeds({ pools, players, results, barrageResults });
+    const { struct, seedList } = window.buildPrincipalSeeds({ pools, players, results });
     const statsById = {};
     allStats.forEach(s => { statsById[s.id] = s; });
     const ranked = seedList.map(e => {
       const s = e.player && statsById[e.player.id];
       return s
         ? { ...s, seed: e.seed, bye: e.bye }
-        : { id: `pending-${e.seed}`, seed: e.seed, bye: false, pending: true, name: 'Vainqueur barrage à venir', poolName: '—', poolColor: t.textSecondary, poolRank: 3, v: 0, d: 0, setsFor: 0, setsAgainst: 0, ptsFor: 0, ptsAgainst: 0 };
+        : { id: `pending-${e.seed}`, seed: e.seed, bye: false, pending: true, name: 'À déterminer', poolName: '—', poolColor: t.textSecondary, poolRank: 3, v: 0, d: 0, setsFor: 0, setsAgainst: 0, ptsFor: 0, ptsAgainst: 0 };
     });
     const QUALIFIED = ranked.length;
 
@@ -246,7 +246,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
               <div style={{ fontSize: 11, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', fontWeight: 700 }}>Critères</div>
               <div style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary }}>
                 {struct.mode === 'direct' && '1ers → 2es (tableau direct)'}
-                {struct.mode === 'barrage' && `1ers → 2es → ${struct.barrageCount} vainqueur${struct.barrageCount > 1 ? 's' : ''} barrage`}
+                {struct.mode === 'thirds' && `1ers → 2es → ${struct.thirdsQualified} meilleur${struct.thirdsQualified > 1 ? 's' : ''} 3e${struct.thirdsQualified > 1 ? 's' : ''}`}
                 {struct.mode === 'byes' && `1ers → 2es (ordre des poules) · ${struct.byeCount} exempté${struct.byeCount > 1 ? 's' : ''} de 1er tour`}
               </div>
             </div>

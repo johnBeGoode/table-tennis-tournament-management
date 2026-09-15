@@ -20,17 +20,17 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=28"></script>
-<script type="text/babel" src="PoolsScreen.jsx?v=18"></script>
-<script type="text/babel" src="BracketsScreen.jsx?v=19"></script>
+<script type="text/babel" src="AppShell.jsx?v=30"></script>
+<script type="text/babel" src="PoolsScreen.jsx?v=19"></script>
+<script type="text/babel" src="BracketsScreen.jsx?v=20"></script>
 <script type="text/babel" src="ResultsScreen.jsx?v=15"></script>
 <script type="text/babel">
 // KnockoutScreen — Tableau principal dynamique (n poules), classement intégral
 // Composition, taille et numérotation : AppShell.buildPrincipalSeeds (mode 'byes' =
-// exemptés de 1er tour, mode 'barrage' = slots en attente des barrages)
+// exemptés de 1er tour, mode 'thirds' = meilleurs 3es en complément)
 // Structure des tours et sous-tableaux : AppShell.buildIntegralBracket
 
-const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracketResults, onUpdateBracketResults, type, testMode }) => {
+const KnockoutScreen = ({ theme, players, pools, results, bracketResults, onUpdateBracketResults, type, testMode }) => {
   const t = window.THEMES[theme];
   const [modal, setModal] = React.useState(null);
   const [score, setScore] = React.useState({ p1: '', p2: '' });
@@ -103,14 +103,13 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
   }
 
   // Composition du tableau — source unique (AppShell.buildPrincipalSeeds) :
-  // 1ers, 2es, vainqueurs de barrage, placés selon buildSeedingPattern.
-  const { struct, bracketSize, seeds } = window.buildPrincipalSeeds({ pools, players, results, barrageResults });
+  // 1ers, 2es, meilleurs 3es, placés selon buildSeedingPattern.
+  const { struct, bracketSize, seeds } = window.buildPrincipalSeeds({ pools, players, results });
 
   // Classement intégral (AppShell.buildIntegralBracket) : les perdants de chaque tour
   // retombent dans un sous-tableau parallèle. En mode 'byes', un slot vide en R1 est un
-  // exempté : l'adversaire passe d'office (même mécanique que la consolante). En mode
-  // 'barrage', un slot vide est un barrage NON JOUÉ : rien n'avance — l'option ne doit
-  // donc être passée qu'en mode 'byes'.
+  // exempté : l'adversaire passe d'office (même mécanique que la consolante). Dans les
+  // autres modes le tableau est plein ; un slot vide (poule incomplète) n'avance pas.
   const bracketOptions = { byes: struct.mode === 'byes' };
   const { groups, totalRounds, descendants } = window.buildIntegralBracket(seeds, prefix, bracketResults, bracketOptions);
 
@@ -364,8 +363,8 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
 Object.assign(window, { KnockoutScreen });
 
 </script>
-<script type="text/babel" src="BarrageScreen.jsx?v=12"></script>
-<script type="text/babel" src="ConsolanteScreen.jsx?v=18"></script>
+<script type="text/babel" src="QualificationScreen.jsx?v=1"></script>
+<script type="text/babel" src="ConsolanteScreen.jsx?v=19"></script>
 
 <script type="text/babel">
 const DEFAULT_SCREEN = /*EDITMODE-BEGIN*/"consolante"/*EDITMODE-END*/;
@@ -383,7 +382,11 @@ window.resetTabPreferences();
 
 const App = () => {
   const theme = THEME;
-  const [screen, setScreen] = React.useState(() => loadState('ertt-screen', DEFAULT_SCREEN));
+  // L'écran « Barrages » est devenu « Qualification » : un ancien id mémorisé y renvoie.
+  const [screen, setScreen] = React.useState(() => {
+    const saved = loadState('ertt-screen', DEFAULT_SCREEN);
+    return saved === 'barrage' ? 'qualification' : saved;
+  });
   React.useEffect(() => { saveState('ertt-screen', screen); }, [screen]);
 
   // Mode test : masque/affiche les boutons de données factices (« Joueurs de test »,
@@ -418,21 +421,24 @@ const App = () => {
   //   3 : nouvelles tables de placement 8/16/32 et 2es placés en moitié opposée de leur
   //       1er — les ids `principal-r1-N` ne désignent plus les mêmes joueurs, purge
   //       dans tous les modes (le placement consolante est jeté par sa clé v5).
+  //   4 : plus de barrages, les meilleurs 3es complètent le tableau (mode 'thirds') —
+  //       purge si le tournoi courant est dans ce mode (les slots 2n+1..B changent de
+  //       joueurs) ; la clé `ertt-barrage-results` est supprimée.
   // Sans purge, buildIntegralBracket propagerait les copies de joueurs des anciens
   // résultats dans un tableau qui ne les contient plus à ces positions.
-  const BRACKET_SCHEMA = 3;
+  const BRACKET_SCHEMA = 4;
   const [bracketResults, setBracketResults] = React.useState(() => {
     const raw = loadState('ertt-bracket-results', {});
     const schema = loadState('ertt-bracket-schema', 1);
     if (schema >= BRACKET_SCHEMA) return raw;
-    if (schema < 2) {
-      const { struct } = window.buildPrincipalSeeds({ pools, players, results, barrageResults: {} });
-      if (struct.mode === 'byes') return {};
-    }
-    return {};
+    if (schema < 3) return {};
+    const { struct } = window.buildPrincipalSeeds({ pools, players, results });
+    return struct.mode === 'thirds' ? {} : raw;
   });
-  React.useEffect(() => { saveState('ertt-bracket-schema', BRACKET_SCHEMA); }, []);
-  const [barrageResults, setBarrageResults] = React.useState(() => loadState('ertt-barrage-results', {}));
+  React.useEffect(() => {
+    saveState('ertt-bracket-schema', BRACKET_SCHEMA);
+    try { localStorage.removeItem('ertt-barrage-results'); } catch {}
+  }, []);
   const [setsToWin, setSetsToWin] = React.useState(() => loadState('ertt-sets-to-win', 3));
   // Verrou des poules : posé par la répartition auto, levé uniquement par
   // « Déverrouiller » (PoolsScreen, confirmé), « Réinitialiser » ou « Joueurs de test ».
@@ -443,7 +449,6 @@ const App = () => {
   React.useEffect(() => { saveState('ertt-pools', pools); }, [pools]);
   React.useEffect(() => { saveState('ertt-results', results); }, [results]);
   React.useEffect(() => { saveState('ertt-bracket-results', bracketResults); }, [bracketResults]);
-  React.useEffect(() => { saveState('ertt-barrage-results', barrageResults); }, [barrageResults]);
   React.useEffect(() => { saveState('ertt-sets-to-win', setsToWin); }, [setsToWin]);
   React.useEffect(() => { saveState('ertt-pools-locked', poolsLocked); }, [poolsLocked]);
 
@@ -467,14 +472,6 @@ const App = () => {
     });
   }, [pools]);
 
-  // Purge des résultats de barrage périmés : dès qu'un classement de poule bouge
-  // (score corrigé, poule modifiée…), les barrages dont la paire de poules ou les
-  // joueurs ont changé sont effacés — sinon un vainqueur périmé (copie stockée)
-  // resterait placé dans le tableau principal. Règle : AppShell.pruneBarrageResults.
-  React.useEffect(() => {
-    setBarrageResults(prev => window.pruneBarrageResults(prev, { pools, players, results }));
-  }, [pools, players, results]);
-
   const handleScreen = (v) => setScreen(v);
 
   const resetAll = () => {
@@ -482,7 +479,6 @@ const App = () => {
     setPools([]);
     setResults({});
     setBracketResults({});
-    setBarrageResults({});
     setPoolsLocked(false);
     // Écrite hors de l'état d'App par ConsolanteScreen : à purger à la main
     window.clearConsolanteSeeds();
@@ -494,7 +490,6 @@ const App = () => {
     setPools([]);
     setResults({});
     setBracketResults({});
-    setBarrageResults({});
     setPoolsLocked(false);
     window.clearConsolanteSeeds();
     setScreen('poules');
@@ -502,11 +497,11 @@ const App = () => {
 
   const screenMap = {
     poules:     <PoolsScreen    theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateSetsToWin={setSetsToWin} onUpdatePlayers={setPlayers} onUpdatePools={setPools} poolsLocked={poolsLocked} onUpdatePoolsLocked={setPoolsLocked} />,
-    brackets:   <BracketsScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} />,
+    brackets:   <BracketsScreen theme={theme} players={players} pools={pools} results={results} bracketResults={bracketResults} />,
     resultats:  <ResultsScreen  theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateResults={setResults} testMode={testMode} />,
-    barrage:    <BarrageScreen  theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} setsToWin={setsToWin} onUpdateBarrageResults={setBarrageResults} />,
-    principal:  <KnockoutScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} type="principal" testMode={testMode} />,
-    consolante: <ConsolanteScreen theme={theme} players={players} pools={pools} results={results} barrageResults={barrageResults} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} testMode={testMode} />,
+    qualification: <QualificationScreen theme={theme} players={players} pools={pools} results={results} />,
+    principal:  <KnockoutScreen theme={theme} players={players} pools={pools} results={results} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} type="principal" testMode={testMode} />,
+    consolante: <ConsolanteScreen theme={theme} players={players} pools={pools} results={results} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} testMode={testMode} />,
   };
 
   return (

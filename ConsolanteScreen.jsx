@@ -1,7 +1,7 @@
 // ConsolanteScreen — Tableau consolante avec placement manuel par drag & drop,
 // en classement intégral (structure : AppShell.buildIntegralBracket, avec byes)
 
-const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, bracketResults, onUpdateBracketResults, testMode }) => {
+const ConsolanteScreen = ({ theme, players, pools, results, bracketResults, onUpdateBracketResults, testMode }) => {
   const t = window.THEMES[theme];
   const accentColor = '#f79025';
   const prefix = 'consolante';
@@ -11,38 +11,20 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
 
   const poolStandings = (pool) => window.poolStandings(pool, players, results);
 
-  // Logique synchronisée avec BarrageScreen
-  const autoQualifiers = pools.length * 2;
+  // Les 3es retenus dans le tableau principal (mode 'thirds' : les meilleurs 3es
+  // complètent le tableau) ne sont pas éligibles — source unique : AppShell.buildPrincipalSeeds.
+  const { thirds: principalThirds } = window.buildPrincipalSeeds({ pools, players, results });
+  const principalThirdIds = new Set(principalThirds.map(e => e.player.id));
   const thirds = pools.map((pool) => {
-    const st = poolStandings(pool);
-    const p = st[2] || null;
-    if (!p) return null;
-    const stats = st.find(s => s.id === p.id);
-    return { player: p, poolLabel: window.poolShortLabel(pool), poolId: pool.id, v: stats?.v || 0, d: stats?.d || 0, sf: stats?.sf || 0, sa: stats?.sa || 0, pf: stats?.pf || 0, pa: stats?.pa || 0 };
+    const p = poolStandings(pool)[2] || null;
+    if (!p || principalThirdIds.has(p.id)) return null;
+    return { player: p, poolId: pool.id, label: `3e (${window.poolShortLabel(pool)})` };
   }).filter(Boolean);
-
-  // Structure du tableau principal — logique partagée (AppShell.computeBracketStructure)
-  const struct = window.computeBracketStructure(autoQualifiers, thirds.length);
-
-  // Quotients inter-poules (Art. II.109 FFTT) — pas de totaux bruts entre poules de tailles différentes
-  const sortedDesc = [...thirds].sort(window.crossPoolCompare);
-  const barrageEligible = struct.mode === 'barrage' ? sortedDesc.slice(0, struct.barrageCount * 2) : [];
-  const directConsolante = thirds.filter(x => !barrageEligible.find(e => e.poolId === x.poolId));
 
   // Index de la poule dans `pools` — c'est lui qui fait le numéro de TS à
   // l'intérieur d'une catégorie (cf. « Calcul des têtes de série » plus bas).
   const poolIndex = {};
   pools.forEach((pool, i) => { poolIndex[pool.id] = i; });
-
-  const barrageLosers = barrageEligible.reduce((acc, _, i) => {
-    if (i % 2 !== 0) return acc;
-    const a = barrageEligible[i], b = barrageEligible[i + 1];
-    if (!a || !b) return acc;
-    const matchId = `barrage-${a.poolId}-${b.poolId}`;
-    const r = barrageResults[matchId];
-    if (r) acc.push({ player: r.winner === 1 ? r.p2 : r.p1, poolId: r.winner === 1 ? b.poolId : a.poolId, label: 'Perdant barrage' });
-    return acc;
-  }, []).sort((x, y) => poolIndex[x.poolId] - poolIndex[y.poolId]);
 
   const fourths = pools.map((pool) => {
     const st = poolStandings(pool);
@@ -51,25 +33,23 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     return { player: p, poolId: pool.id, label: `4e (${window.poolShortLabel(pool)})` };
   }).filter(Boolean);
 
-  const directConsolanteEntries = directConsolante.map(x => ({ player: x.player, poolId: x.poolId, label: `3e direct (${x.poolLabel})` }));
   // Les 1ers et 2es sont toujours qualifiés pour le principal (mode 'byes' : exemptions
-  // de 1er tour, plus d'élimination) : la consolante ne reçoit que 3es et 4es.
+  // de 1er tour, plus d'élimination) : la consolante ne reçoit que les 3es non retenus
+  // dans le principal et les 4es.
 
   // Aucun match de poule joué → pas de joueurs éligibles
   const totalPoolMatchesPlayed = Object.keys(results || {}).filter(k => k.startsWith('pool-')).length;
 
   const eligibleListRaw = totalPoolMatchesPlayed === 0 ? [] : [
-    ...barrageLosers,
-    ...directConsolanteEntries,
+    ...thirds,
     ...fourths,
   ];
 
   // ── Calcul des têtes de série ────────────────────────────────────────────
   // Même règle que le tableau principal (AppShell.buildPrincipalSeeds) : le RANG dans
-  // la poule puis l'ORDRE DES POULES, jamais les statistiques. Tous les 3es d'abord —
-  // perdant de barrage ou 3e direct, peu importe — dans l'ordre des poules (3e de A =
-  // TS 1, 3e de B = TS 2, …), puis tous les 4es dans ce même ordre (4e de A = TS a+1).
-  // L'étiquette (« Perdant barrage », « 3e direct ») n'est qu'une information.
+  // la poule puis l'ORDRE DES POULES, jamais les statistiques. Tous les 3es d'abord,
+  // dans l'ordre des poules (3e de A = TS 1, 3e de B = TS 2, …), puis tous les 4es dans
+  // ce même ordre (4e de A = TS a+1). L'étiquette n'est qu'une information.
   // Trier par performance ici donnait un tableau qui paraissait distribué au hasard.
   const isFourth = (label) => !!label?.startsWith('4e');
 
@@ -106,7 +86,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   }, [seeds]);
 
   // Resynchronise les seeds si la structure change en cours de session
-  // (barrage saisi, résultat de poule corrigé, poule modifiée…) :
+  // (résultat de poule corrigé, poule modifiée…) :
   // taille de bracket différente → reset ; joueur plus éligible → retiré du tableau.
   const eligibleIdsKey = eligibleList.map(e => e.player.id).sort((a, b) => a - b).join(',');
   React.useEffect(() => {
@@ -169,7 +149,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
 
   const autoPlace = () => {
     // Même règle que le tableau principal (AppShell.buildPrincipalSeeds) : les 3es
-    // (perdants de barrage puis 3es directs, TS 1..a) sont placés à leur numéro ; les
+    // (TS 1..a) sont placés à leur numéro ; les
     // 4es (TS a+1..a+b) occupent les seeds a+1..a+b du pattern, chacun en moitié
     // opposée du 3e de sa poule (AppShell.assignPartnerSlots) pour ne le rejouer que
     // le plus tard possible. Tableau plein : chacun à son numéro.

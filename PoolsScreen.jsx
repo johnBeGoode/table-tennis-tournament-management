@@ -21,7 +21,7 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
   // aucune action de modification n'est rendue — ni sur les poules (création,
   // suppression, ajout/retrait de joueur, nouvelle répartition), ni sur les joueurs
   // déjà placés. Seul « Déverrouiller » (confirmé) le lève ; les purges automatiques
-  // d'App (résultats orphelins, barrages périmés) prennent le relais ensuite.
+  // d'App (résultats de poule orphelins) prennent le relais ensuite.
   const locked = !!poolsLocked;
 
   // Joueurs déjà assignés à une poule
@@ -527,7 +527,7 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
             </div>
             <div style={{ fontSize: 13, color: t.textSecondary, marginBottom: 24, lineHeight: 1.5 }}>
               Les poules redeviennent modifiables. Toute modification de composition efface
-              les résultats de poule et les barrages qui en dépendent.
+              les résultats de poule concernés ; les tableaux qui en dépendent sont à revoir.
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => setConfirmUnlock(false)}
