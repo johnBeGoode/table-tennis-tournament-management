@@ -397,8 +397,9 @@ const resetTabPreferences = () => {
 // placement construit avec l'ancienne règle doit être jeté, pas rechargé.
 // v4 : la catégorie « 2e éliminé » a disparu (mode 'byes' à la place d'eliminate).
 // v5 : nouvelles tables 8, 16 et 32 et placement des 4es en moitié opposée de leur 3e.
-const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v5';
-const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2', 'consolante-seeds-v3', 'consolante-seeds-v4'];
+// v6 : numérotation par ordre des poules pour tous les 3es (perdants de barrage compris).
+const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v6';
+const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2', 'consolante-seeds-v3', 'consolante-seeds-v4', 'consolante-seeds-v5'];
 
 const clearConsolanteSeeds = () => {
   try {
@@ -457,29 +458,64 @@ const firstRoundOpponent = (size, seed) => {
 // Placement des « partenaires » de poule dans un bloc de seeds. `anchors` = joueurs
 // déjà placés [{ poolId, slot }] (slot = numéro de seed dans le pattern), `block` =
 // [{ poolId }] dans l'ordre de numérotation, `[from, to]` = seeds du pattern réservés
-// au bloc (un par entrée). Renvoie le slot de chaque entrée du bloc : glouton dans
-// l'ordre, chaque entrée prend le slot libre qui repousse le plus tard possible sa
-// rencontre avec l'ancre de sa poule (moitié opposée dès que possible), à égalité le
-// plus petit ; sans ancre de même poule, le plus petit slot libre. Quand le tableau
-// est plein, les tables 8, 16 et 32 rendent l'identité (2e de la poule i → slot n + i).
+// au bloc (exactement un par entrée). Renvoie le slot de chaque entrée du bloc.
+// Objectif : chaque entrée doit rencontrer l'ancre de sa poule le plus tard possible.
+// Ce n'est pas un glouton (l'ordre de passage ferait perdre à une poule le dernier
+// slot de la bonne moitié) mais une affectation exacte par programmation dynamique
+// sur les sous-ensembles de slots (≤ 16 entrées → ≤ 65 536 états). Coût d'une entrée
+// ancrée = taille^(finale − tour de rencontre) : une rencontre au 1er tour coûte plus
+// que toutes les autres réunies, on minimise donc d'abord le nombre de retrouvailles
+// au 1er tour, puis au 2e, etc. Une entrée sans ancre de même poule ne coûte rien.
+// À coût égal, le plus petit slot (dans l'ordre des entrées) : quand le tableau est
+// plein, les tables 8, 16 et 32 rendent l'identité (2e de la poule i → slot n + i).
 // Vérifié pour 2 à 16 poules : toutes les paires 1er/2e ne se croisent qu'en finale.
+// Mémo à une entrée : buildPrincipalSeeds est appelé à chaque rendu par plusieurs
+// écrans, et 16 entrées ancrées coûtent ~10 ms — les mêmes arguments rendent le même
+// résultat.
+let partnerSlotsCache = { key: null, value: null };
 const assignPartnerSlots = (size, anchors, block, [from, to]) => {
-  const free = [];
-  for (let s = from; s <= to; s++) free.push(s);
-  return block.map(entry => {
+  const key = JSON.stringify([size, anchors.map(a => [a.poolId, a.slot]), block.map(e => e.poolId), from, to]);
+  if (partnerSlotsCache.key === key) return partnerSlotsCache.value;
+  const value = computePartnerSlots(size, anchors, block, [from, to]);
+  partnerSlotsCache = { key, value };
+  return value;
+};
+
+const computePartnerSlots = (size, anchors, block, [from, to]) => {
+  const m = block.length;
+  const slots = [];
+  for (let s = from; s <= to; s++) slots.push(s);
+  if (m === 0 || slots.length !== m) return block.map((_, i) => slots[i] ?? null);
+  const finalRound = Math.round(Math.log2(size));
+  const cost = block.map(entry => {
     const anchor = anchors.find(a => a.poolId === entry.poolId);
-    let best = free[0];
-    if (anchor !== undefined) {
-      const anchorPos = patternIndex(size, anchor.slot);
-      let bestRound = -1;
-      free.forEach(s => {
-        const r = meetingRound(anchorPos, patternIndex(size, s));
-        if (r > bestRound) { bestRound = r; best = s; }
-      });
-    }
-    free.splice(free.indexOf(best), 1);
-    return best;
+    if (!anchor) return slots.map(() => 0);
+    const anchorPos = patternIndex(size, anchor.slot);
+    return slots.map(s => Math.pow(size, finalRound - meetingRound(anchorPos, patternIndex(size, s))));
   });
+  // best[mask] = coût minimal pour placer les entrées restantes (l'entrée courante est
+  // popcount(mask)) sur les slots hors mask ; choice[mask] = slot retenu pour elle.
+  const best = new Float64Array(1 << m).fill(-1);
+  const choice = new Int8Array(1 << m);
+  const solve = (mask) => {
+    if (best[mask] >= 0) return best[mask];
+    let i = 0;
+    for (let x = mask; x; x &= x - 1) i++;
+    if (i === m) return (best[mask] = 0);
+    let bestCost = Infinity, bestSlot = -1;
+    for (let j = 0; j < m; j++) {
+      if (mask & (1 << j)) continue;
+      const c = cost[i][j] + solve(mask | (1 << j));
+      if (c < bestCost) { bestCost = c; bestSlot = j; }
+    }
+    choice[mask] = bestSlot;
+    return (best[mask] = bestCost);
+  };
+  solve(0);
+  const out = [];
+  let mask = 0;
+  for (let i = 0; i < m; i++) { const j = choice[mask]; out.push(slots[j]); mask |= 1 << j; }
+  return out;
 };
 
 // --- Tableau principal : qualifiés et placement --------------------------------

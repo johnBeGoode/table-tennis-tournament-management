@@ -65,32 +65,17 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   ];
 
   // ── Calcul des têtes de série ────────────────────────────────────────────
-  // Mêmes règles que le tableau principal (KnockoutScreen, index.html) : catégorie
-  // d'abord, puis ORDRE DES POULES — et non les quotients. Le 3e de la poule A est
-  // TS 1, le 3e de la poule B TS 2, …, puis les 4es dans ce même ordre.
-  // C'est ce qui garantit que deux joueurs d'une même poule ne se retrouvent pas
-  // au 1er tour : avec le pattern FFTT, la TS i affronte la TS (taille + 1 - i),
-  // donc le 3e de la poule i affronte le 4e d'une AUTRE poule.
-  // Trier par performance ici cassait cet appariement et donnait un tableau qui
-  // paraissait distribué au hasard.
-  //
-  // Priorité de catégorie : perdant barrage > 3e direct > 4e
-  const categoryRank = (label) => {
-    if (label?.startsWith('Perdant barrage')) return 0;
-    if (label?.startsWith('3e direct')) return 1;
-    return 2;
-  };
+  // Même règle que le tableau principal (AppShell.buildPrincipalSeeds) : le RANG dans
+  // la poule puis l'ORDRE DES POULES, jamais les statistiques. Tous les 3es d'abord —
+  // perdant de barrage ou 3e direct, peu importe — dans l'ordre des poules (3e de A =
+  // TS 1, 3e de B = TS 2, …), puis tous les 4es dans ce même ordre (4e de A = TS a+1).
+  // L'étiquette (« Perdant barrage », « 3e direct ») n'est qu'une information.
+  // Trier par performance ici donnait un tableau qui paraissait distribué au hasard.
+  const isFourth = (label) => !!label?.startsWith('4e');
 
-  // `eligibleListRaw` est déjà groupé par catégorie et, dans chaque catégorie, en
-  // ordre de poules : le tri (stable) ne fait que rendre la règle explicite.
-  const seedOrder = [...eligibleListRaw]
-    .map((e, i) => ({ ...e, _i: i }))
-    .sort((a, b) => (categoryRank(a.label) - categoryRank(b.label)) || (a._i - b._i));
-
-  const seedMap = {};
-  seedOrder.forEach((e, i) => { seedMap[e.player.id] = i + 1; });
-
-  const eligibleList = eligibleListRaw.map(e => ({ ...e, seed: seedMap[e.player.id] }));
+  const eligibleList = [...eligibleListRaw]
+    .sort((a, b) => ((isFourth(a.label) ? 1 : 0) - (isFourth(b.label) ? 1 : 0)) || (poolIndex[a.poolId] - poolIndex[b.poolId]))
+    .map((e, i) => ({ ...e, seed: i + 1 }));
 
   // ── State ────────────────────────────────────────────────────────────────
   // Taille du bracket calculée dynamiquement selon le nombre de joueurs éligibles
@@ -188,9 +173,9 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
     // 4es (TS a+1..a+b) occupent les seeds a+1..a+b du pattern, chacun en moitié
     // opposée du 3e de sa poule (AppShell.assignPartnerSlots) pour ne le rejouer que
     // le plus tard possible. Tableau plein : chacun à son numéro.
-    const ordered = [...eligibleList].sort((a, b) => a.seed - b.seed);
-    const thirds = ordered.filter(e => categoryRank(e.label) < 2);
-    const fourths = ordered.filter(e => categoryRank(e.label) === 2);
+    const ordered = [...eligibleList].sort((a, b) => a.seed - b.seed);   // déjà trié, par sûreté
+    const thirds = ordered.filter(e => !isFourth(e.label));
+    const fourths = ordered.filter(e => isFourth(e.label));
     const anchors = thirds.map(e => ({ poolId: e.poolId, slot: e.seed }));
     const fourthSlots = window.assignPartnerSlots(bracketSize, anchors, fourths, [thirds.length + 1, thirds.length + fourths.length]);
     const slotToPlayer = {};
