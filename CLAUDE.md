@@ -4,6 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Le code, les commentaires et l'interface sont en français. Garde cette langue pour tout ce que tu ajoutes.
 
+## Règles de travail
+
+**Ne jamais commiter sans demande explicite.** Laisse le travail dans l'arbre de travail et
+dis ce que tu as changé ; c'est John qui décide quand et quoi commiter. Cela vaut aussi pour
+`git add`, les branches et les tags : aucune écriture dans l'historique de son propre chef.
+
+**Vocabulaire — « TS » ne désigne PAS la numérotation des tableaux.** Pour John, une tête de
+série est un joueur au meilleur classement FFTT, ce qui ne sert qu'à constituer les poules
+(méthode du serpent, `PoolsScreen`). Les tableaux, eux, sont numérotés par le **rang en
+sortie de poule** puis l'ordre des poules — c'est ce que l'interface appelle « N° » (colonne
+de Classements / Tab principal, badges de Qualification). Dans le code, la variable s'appelle
+encore `seed` ; ne la présente jamais comme une « tête de série » dans l'interface.
+
 ## Lancer le projet
 
 Il n'y a **ni `package.json`, ni build, ni dépendances, ni tests**. React et Babel sont chargés depuis un CDN et le JSX est transpilé **dans le navigateur** au chargement de la page.

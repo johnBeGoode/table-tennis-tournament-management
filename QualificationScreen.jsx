@@ -145,7 +145,7 @@ const QualificationScreen = ({ theme, players, pools, results }) => {
                         <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
                           {qualified ? (
                             <span style={{ background: '#20bf6b1a', color: '#20bf6b', borderRadius: t.tagRadius, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>
-                              <i className="fas fa-trophy" style={{ marginRight: 4, fontSize: 9 }}></i>TS{seedByPlayerId[player.id]} · Principal
+                              <i className="fas fa-trophy" style={{ marginRight: 4, fontSize: 9 }}></i>N°{seedByPlayerId[player.id]} · Principal
                             </span>
                           ) : (
                             <span style={{ background: `${accentColor}1a`, color: accentColor, borderRadius: t.tagRadius, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>
@@ -182,7 +182,7 @@ const QualificationScreen = ({ theme, players, pools, results }) => {
           Avec {pools.length} poules, les 1ers et 2es ({autoQualifiers} joueurs) sont tous qualifiés mais ne remplissent pas
           un tableau de {bracketSize} : il manque {missing} joueur{missing > 1 ? 's' : ''}. Aucun 3e n'est repêché — un 3e de poule
           ne complète le tableau que lorsqu'il ne manque que 2 joueurs. Ce sont donc les {k} <strong>mieux classés à la sortie
-          des poules</strong> (TS1 à TS{k}) qui sont exemptés de 1er tour ; les suivants s'affrontent pour désigner les
+          des poules</strong> (n°1 à n°{k}) qui sont exemptés de 1er tour ; les suivants s'affrontent pour désigner les
           joueurs manquants, et le tableau retombe sur {bracketSize / 2} joueurs au tour suivant. Le placement évite à
           chacun de rejouer un joueur de sa poule. Tous les 3es et 4es vont en consolante.
         </div>
@@ -191,7 +191,7 @@ const QualificationScreen = ({ theme, players, pools, results }) => {
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {exempted.map(({ seed, player, poolId, poolRank }) => (
               <div key={seed} style={{ background: t.tableHeaderBg, border: `1px solid ${t.tableBorder}`, borderRadius: 8, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: t.textSecondary, opacity: .6 }}>TS{seed}</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: t.textSecondary, opacity: .6 }}>N°{seed}</span>
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#20bf6b' }}>{poolLabelById[poolId]}{poolRank}</span>
                 <span style={{ fontSize: 13, color: t.textPrimary }}>{player.name}</span>
               </div>

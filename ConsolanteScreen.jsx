@@ -444,7 +444,7 @@ const ConsolanteScreen = ({ theme, players, pools, results, bracketResults, onUp
                 Joueurs à placer ({unplaced.length})
               </div>
               <button onClick={autoPlace}
-                title="Place automatiquement les joueurs selon les têtes de série (réinitialise les slots, vous pouvez ensuite intervertir manuellement)"
+                title="Place automatiquement les joueurs selon leur n° de sortie de poules (réinitialise les slots, vous pouvez ensuite intervertir manuellement)"
                 style={{ padding: '5px 10px', borderRadius: 6, border: `1.5px solid ${accentColor}`, background: `${accentColor}12`, color: accentColor, fontWeight: 700, fontSize: 10, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.4px', whiteSpace: 'nowrap' }}>
                 <i className="fas fa-magic" style={{ marginRight: 5 }}></i>Auto
               </button>

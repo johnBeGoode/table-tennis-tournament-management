@@ -260,7 +260,7 @@ const BracketsScreen = ({ theme, players, pools, results, bracketResults }) => {
             <thead>
               <tr style={{ background: t.tableHeaderBg }}>
                 {[
-                  { l: 'TS',     a: 'left',   w: 64 },
+                  { l: 'N°',     a: 'left',   w: 64 },
                   { l: 'Joueur', a: 'left'          },
                   { l: 'Poule',  a: 'left',   w: 116 },
                   { l: 'V',      a: 'center', w: 48 },
