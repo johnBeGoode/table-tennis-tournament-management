@@ -56,6 +56,8 @@ curl -sL -o /tmp/babel.js https://unpkg.com/@babel/standalone@7.29.0/babel.min.j
 
 Puis, dans un script Node : `Babel.transform(src, { presets: ['react'] })` sur chaque `.jsx` **et** sur les blocs `<script type="text/babel">` extraits d'`index.html`, puis `vm.runInContext(code, sandbox)` avec un sandbox minimal — `window: {}`, un `localStorage` sur `Map`, et `React` en `new Proxy({}, { get: () => () => {} })`. Le JSX ne s'exécute pas au chargement du module (il est dans des corps de fonctions), donc ce stub suffit pour peupler `window` et appeler les utilitaires partagés. Ce que ça ne couvre pas : rendu, effets, drag & drop.
 
+**Envelopper chaque source dans une IIFE** (`(function(){...})()`) avant de la passer à `vm.runInContext` : dans le navigateur, Babel standalone exécute chaque `<script type="text/babel">` dans un `eval` qui lui donne sa **propre portée lexicale** — les `const` de haut niveau ne sont pas partagés, seul `window` l'est (c'est toute la raison d'être des `Object.assign(window, {...})`). Un sandbox qui enchaîne les sources dans une portée unique signale de faux conflits, typiquement « Identifier 'loadState' has already been declared » entre `AppShell.jsx` et le bloc `App` d'`index.html`. Prévoir aussi `document.getElementById` et un `ReactDOM` chaînable, sinon le `createRoot(...).render(...)` final échoue pour rien.
+
 ## Contraintes structurantes
 
 ### Il n'y a pas de bundler : tout passe par `window`
