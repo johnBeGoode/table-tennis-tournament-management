@@ -181,9 +181,10 @@ const QualificationScreen = ({ theme, players, pools, results }) => {
         <div style={textStyle}>
           Avec {pools.length} poules, les 1ers et 2es ({autoQualifiers} joueurs) sont tous qualifiés mais ne remplissent pas
           un tableau de {bracketSize} : il manque {missing} joueur{missing > 1 ? 's' : ''}. Aucun 3e n'est repêché — un 3e de poule
-          ne complète le tableau que lorsqu'il ne manque que 2 joueurs. Les {k} places manquantes sont donc laissées vides :
-          les {k} TS dont l'adversaire de 1er tour n'existe pas sont exemptées de 1er tour, et le tableau retombe
-          sur {bracketSize / 2} joueurs au tour suivant. Tous les 3es et 4es vont en consolante.
+          ne complète le tableau que lorsqu'il ne manque que 2 joueurs. Ce sont donc les {k} <strong>mieux classés à la sortie
+          des poules</strong> (TS1 à TS{k}) qui sont exemptés de 1er tour ; les suivants s'affrontent pour désigner les
+          joueurs manquants, et le tableau retombe sur {bracketSize / 2} joueurs au tour suivant. Le placement évite à
+          chacun de rejouer un joueur de sa poule. Tous les 3es et 4es vont en consolante.
         </div>
         <SectionTitle>Exemptés de 1er tour</SectionTitle>
         {poolsComplete ? (

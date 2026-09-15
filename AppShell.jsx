@@ -344,6 +344,61 @@ const crossPoolCompare = (a, b) => {
   return 0; // égalité persistante — départage par tirage au sort (hors scope du tri auto)
 };
 
+// Placement des joueurs dans le pattern quand le tableau n'est pas plein — SOURCE UNIQUE,
+// partagée par le tableau principal et la consolante, qui doivent répartir à l'identique.
+//
+// Règle : ce sont les `byeCount` MEILLEURES TS (les premières de l'onglet Classements /
+// Tab principal, donc l'ordre des poules appliqué aux rangs de sortie de poule) qui sont
+// exemptées de 1er tour. Les suivantes s'affrontent pour compléter le tour 2, qui retombe
+// ainsi sur une puissance de 2.
+//
+// D'où le point délicat : on vide les PARTENAIRES des slots 1..byeCount, jamais les
+// derniers slots du pattern. Sur un tableau de 16 les deux coïncident (toutes les paires
+// font 17), ce qui masque le problème ; sur 32 les paires sont 1-28, 2-27, 3-26, 4-25,
+// 5-32, 6-31… donc vider 29..32 exempterait TS5 à TS8 en laissant jouer TS1 à TS4.
+//
+// `numbered` : `[{ poolId, poolRank, seed }]`, seed = numéro de TS (1 = meilleur).
+// Renvoie `{ [seed]: slot }`.
+const assignBracketSlots = (bracketSize, byeCount, numbered) => {
+  const byeSlots = Array.from({ length: byeCount }, (_, i) => i + 1);
+  const emptySlots = new Set(byeSlots.map(slot => firstRoundOpponent(bracketSize, slot)));
+  const matchSlots = [];
+  for (let slot = 1; slot <= bracketSize; slot++) {
+    if (slot > byeCount && !emptySlots.has(slot)) matchSlots.push(slot);
+  }
+
+  // Affectation par blocs : un bloc ne puise que dans les slots de son groupe (exempté ou
+  // joueur), ce qui garantit que les exemptés sont bien les `byeCount` premières TS ; à
+  // l'intérieur d'un bloc, assignPartnerSlots éloigne chacun de ses camarades de poule
+  // déjà placés. Les rangs faibles exemptés (un 2e de poule exempté, quand il y a plus
+  // d'exemptions que de poules) passent EN PREMIER : ils n'ont qu'une poignée de slots
+  // possibles, et choisir avant permet ensuite d'éloigner le 1er de leur poule.
+  // Sans exemption, byeSlots est vide et l'ordre des blocs redonne exactement le
+  // placement canonique (rang 1 → slots 1..n, rang 2 → n+1..2n, rang 3 → 2n+1..B).
+  const ranks = [...new Set(numbered.map(e => e.poolRank))].sort((a, b) => a - b);
+  const topRank = ranks[0];
+  const exempt = (e) => e.seed <= byeCount;
+  const blocks = [
+    numbered.filter(e => exempt(e) && e.poolRank !== topRank),
+    numbered.filter(e => exempt(e) && e.poolRank === topRank),
+    ...ranks.map(r => numbered.filter(e => !exempt(e) && e.poolRank === r)),
+  ];
+
+  const bucket = { bye: [...byeSlots], match: [...matchSlots] };
+  const slotOf = {};
+  const anchors = [];
+  blocks.forEach(block => {
+    if (!block.length) return;
+    const slots = (exempt(block[0]) ? bucket.bye : bucket.match).splice(0, block.length);
+    const got = assignPartnerSlots(bracketSize, anchors, block, slots);
+    block.forEach((e, i) => {
+      slotOf[e.seed] = got[i];
+      anchors.push({ poolId: e.poolId, slot: got[i] });
+    });
+  });
+  return slotOf;
+};
+
 // Structure du tableau principal — source unique. Il n'y a jamais de barrage.
 //   B = nextPow2(qualifiés), missing = B − qualifiés
 //   missing == 0 → 'direct' : tableau exactement rempli (2, 4, 8, 16 poules)
@@ -413,8 +468,10 @@ const resetTabPreferences = () => {
 // v8 : le repêchage des 3es est restreint au trou de 2 places. De 6 et 11 à 14 poules,
 //      les 3es qui étaient retenus dans le principal reviennent tous en consolante : le
 //      nombre d'éligibles et donc la numérotation changent (6 poules : 8 éligibles → 12).
-const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v8';
-const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2', 'consolante-seeds-v3', 'consolante-seeds-v4', 'consolante-seeds-v5', 'consolante-seeds-v6', 'consolante-seeds-v7'];
+// v9 : les exemptions de 1er tour vont aux MEILLEURES TS (assignBracketSlots) — le
+//      placement change dès que le tableau n'est pas plein, sans que sa taille bouge.
+const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v9';
+const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2', 'consolante-seeds-v3', 'consolante-seeds-v4', 'consolante-seeds-v5', 'consolante-seeds-v6', 'consolante-seeds-v7', 'consolante-seeds-v8'];
 
 const clearConsolanteSeeds = () => {
   try {
@@ -493,20 +550,18 @@ const firstRoundOpponent = (size, seed) => {
 // un mémo à une seule entrée manquerait à tous les coups.
 const PARTNER_SLOTS_CACHE_MAX = 8;
 const partnerSlotsCache = new Map();
-const assignPartnerSlots = (size, anchors, block, [from, to]) => {
-  const key = JSON.stringify([size, anchors.map(a => [a.poolId, a.slot]), block.map(e => e.poolId), from, to]);
+const assignPartnerSlots = (size, anchors, block, slots) => {
+  const key = JSON.stringify([size, anchors.map(a => [a.poolId, a.slot]), block.map(e => e.poolId), slots]);
   if (partnerSlotsCache.has(key)) return partnerSlotsCache.get(key);
-  const value = computePartnerSlots(size, anchors, block, [from, to]);
+  const value = computePartnerSlots(size, anchors, block, slots);
   // Éviction de la plus ancienne entrée : Map itère dans l'ordre d'insertion.
   if (partnerSlotsCache.size >= PARTNER_SLOTS_CACHE_MAX) partnerSlotsCache.delete(partnerSlotsCache.keys().next().value);
   partnerSlotsCache.set(key, value);
   return value;
 };
 
-const computePartnerSlots = (size, anchors, block, [from, to]) => {
+const computePartnerSlots = (size, anchors, block, slots) => {
   const m = block.length;
-  const slots = [];
-  for (let s = from; s <= to; s++) slots.push(s);
   if (m === 0 || slots.length !== m) return block.map((_, i) => slots[i] ?? null);
   const finalRound = Math.round(Math.log2(size));
   const cost = block.map(entry => {
@@ -584,15 +639,17 @@ const buildPrincipalSeeds = ({ pools, players, results }) => {
     : [];
 
   // Numérotation (ordre des poules) : numéro de TS → { player, poolId, poolRank, slot }
+  // Les numéros de TS ne dépendent que du rang en poule et de l'ordre des poules ; le
+  // placement (slot) est un second temps, contraint par les exemptions.
+  const numbered = [
+    ...firstEntries.map((e, i) => ({ ...e, poolRank: 1, seed: i + 1 })),
+    ...secondEntries.map((e, i) => ({ ...e, poolRank: 2, seed: n + i + 1 })),
+    ...thirds.map((e, i) => ({ ...e, poolRank: 3, seed: n + secondEntries.length + i + 1 })),
+  ];
+
+  const slotOf = assignBracketSlots(bracketSize, struct.byeCount, numbered);
   const seedMap = {};
-  firstEntries.forEach((e, i) => { seedMap[i + 1] = { ...e, poolRank: 1, slot: i + 1 }; });
-  const anchors = firstEntries.map((e, i) => ({ poolId: e.poolId, slot: i + 1 }));
-  const secondSlots = assignPartnerSlots(bracketSize, anchors, secondEntries, [n + 1, n + secondEntries.length]);
-  secondEntries.forEach((e, i) => { seedMap[n + i + 1] = { ...e, poolRank: 2, slot: secondSlots[i] }; });
-  const thirdsFrom = n + secondEntries.length + 1;
-  const thirdAnchors = [...anchors, ...secondEntries.map((e, i) => ({ poolId: e.poolId, slot: secondSlots[i] }))];
-  const thirdSlots = assignPartnerSlots(bracketSize, thirdAnchors, thirds, [thirdsFrom, thirdsFrom + thirds.length - 1]);
-  thirds.forEach((e, i) => { seedMap[thirdsFrom + i] = { ...e, poolRank: 3, slot: thirdSlots[i] }; });
+  numbered.forEach(e => { seedMap[e.seed] = { ...e, slot: slotOf[e.seed] }; });
 
   // Placement : seed du pattern → entrée
   const slotMap = {};
@@ -777,4 +834,4 @@ const randomPlayers = (count) => {
   });
 };
 
-Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, poolCompare, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });
+Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, poolCompare, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, assignBracketSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });

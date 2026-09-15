@@ -148,19 +148,15 @@ const ConsolanteScreen = ({ theme, players, pools, results, bracketResults, onUp
   };
 
   const autoPlace = () => {
-    // Même règle que le tableau principal (AppShell.buildPrincipalSeeds) : les 3es
-    // (TS 1..a) sont placés à leur numéro ; les
-    // 4es (TS a+1..a+b) occupent les seeds a+1..a+b du pattern, chacun en moitié
-    // opposée du 3e de sa poule (AppShell.assignPartnerSlots) pour ne le rejouer que
-    // le plus tard possible. Tableau plein : chacun à son numéro.
+    // Placement délégué à AppShell.assignBracketSlots — la MÊME fonction que le tableau
+    // principal, pour que les deux répartissent à l'identique. Les 3es (TS 1..a) puis les
+    // 4es (TS a+1..a+b), chacun en moitié opposée du 3e de sa poule pour ne le rejouer
+    // que le plus tard possible, et les exemptions de 1er tour aux MEILLEURES TS.
     const ordered = [...eligibleList].sort((a, b) => a.seed - b.seed);   // déjà trié, par sûreté
-    const thirds = ordered.filter(e => !isFourth(e.label));
-    const fourths = ordered.filter(e => isFourth(e.label));
-    const anchors = thirds.map(e => ({ poolId: e.poolId, slot: e.seed }));
-    const fourthSlots = window.assignPartnerSlots(bracketSize, anchors, fourths, [thirds.length + 1, thirds.length + fourths.length]);
+    const numbered = ordered.map(e => ({ poolId: e.poolId, poolRank: isFourth(e.label) ? 4 : 3, seed: e.seed }));
+    const slotOf = window.assignBracketSlots(bracketSize, bracketSize - ordered.length, numbered);
     const slotToPlayer = {};
-    thirds.forEach(e => { slotToPlayer[e.seed] = e.player; });
-    fourths.forEach((e, i) => { slotToPlayer[fourthSlots[i]] = e.player; });
+    ordered.forEach(e => { slotToPlayer[slotOf[e.seed]] = e.player; });
 
     // Réécrit tous les slots selon le pattern (AppShell.buildSeedingPattern). Les seeds
     // sans joueur deviennent des byes, face aux TS que le pattern désigne.
