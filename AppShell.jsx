@@ -396,8 +396,9 @@ const resetTabPreferences = () => {
 // buildSeedingPattern ou la numérotation des têtes de série de la consolante : un
 // placement construit avec l'ancienne règle doit être jeté, pas rechargé.
 // v4 : la catégorie « 2e éliminé » a disparu (mode 'byes' à la place d'eliminate).
-const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v4';
-const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2', 'consolante-seeds-v3'];
+// v5 : nouvelles tables 8, 16 et 32 et placement des 4es en moitié opposée de leur 3e.
+const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v5';
+const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2', 'consolante-seeds-v3', 'consolante-seeds-v4'];
 
 const clearConsolanteSeeds = () => {
   try {
@@ -405,18 +406,22 @@ const clearConsolanteSeeds = () => {
   } catch {}
 };
 
-// Placement standard FFTT : numéro de tête de série à chaque position du tableau,
-// 1-indexé. Source unique pour le tableau principal (KnockoutScreen, index.html) et
-// la consolante (ConsolanteScreen) — les deux DOIVENT répartir de la même façon.
-// Invariant : dans chaque paire du 1er tour, la somme des seeds vaut size + 1
-// (TS1 vs TSN, TS2 vs TSN-1, …), et l'invariant se propage à chaque tour.
+// Placement des têtes de série : numéro de TS à chaque position du tableau, 1-indexé.
+// Source unique pour le tableau principal (KnockoutScreen, index.html) et la
+// consolante (ConsolanteScreen) — les deux DOIVENT répartir de la même façon.
+// Les tables sont la référence, pas une formule : sur 16, chaque paire du 1er tour
+// fait bien 17, mais sur 8 elles font 7 ou 11 et sur 32, 29 ou 37 (TS1–TS28, TS5–TS32…).
+// Pour connaître l'adversaire d'une TS, lire le pattern (firstRoundOpponent), jamais
+// calculer `taille + 1 − seed`. Propriété des tables 8, 16 et 32, exploitée par la
+// numérotation en ordre des poules : TS i et TS i + taille/2 sont dans des moitiés
+// opposées (le 1er et le 2e d'une même poule ne peuvent se retrouver qu'en finale).
 const buildSeedingPattern = (size) => {
   const FFTT = {
     2:  [1,2],
     4:  [1,4,3,2],
-    8:  [1,8,5,4,3,6,7,2],
-    16: [1,16,9,8,5,12,13,4,3,14,11,6,7,10,15,2],
-    32: [1,32,17,16,9,24,25,8,5,28,21,12,13,20,29,4,3,30,19,14,11,22,27,6,7,26,23,10,15,18,31,2],
+    8:  [1,6,7,4,3,8,5,2],
+    16: [1,16,11,6,7,10,13,4,3,14,9,8,5,12,15,2],
+    32: [1,28,19,10,15,22,29,8,5,32,23,14,11,18,25,4,3,26,17,12,13,24,31,6,7,30,21,16,9,20,27,2],
   };
   if (FFTT[size]) return FFTT[size];
   // Tailles hors tables (64+) : construction récursive, on intercale (taille+1 - seed)
@@ -432,25 +437,71 @@ const buildSeedingPattern = (size) => {
   return order;
 };
 
+// Position (0-indexée) de la TS `seed` dans le tableau de taille `size`.
+const patternIndex = (size, seed) => buildSeedingPattern(size).indexOf(seed);
+
+// Tour où deux positions du tableau se rencontreraient (1 = 1er tour, log2(taille) =
+// finale) : le rang du bit de poids fort de posA XOR posB. Deux positions ne
+// diffèrent que par leur dernier bit → même match de 1er tour ; moitiés opposées
+// → elles ne se croisent qu'en finale.
+const meetingRound = (posA, posB) => Math.floor(Math.log2(posA ^ posB)) + 1;
+
+// Numéro de TS de l'adversaire de 1er tour de `seed` (le voisin de position).
+// Seule façon correcte de le connaître : la somme d'une paire ne vaut pas toujours
+// taille + 1 (cf. buildSeedingPattern).
+const firstRoundOpponent = (size, seed) => {
+  const pattern = buildSeedingPattern(size);
+  return pattern[pattern.indexOf(seed) ^ 1];
+};
+
+// Placement des « partenaires » de poule dans un bloc de seeds. `anchors` = joueurs
+// déjà placés [{ poolId, slot }] (slot = numéro de seed dans le pattern), `block` =
+// [{ poolId }] dans l'ordre de numérotation, `[from, to]` = seeds du pattern réservés
+// au bloc (un par entrée). Renvoie le slot de chaque entrée du bloc : glouton dans
+// l'ordre, chaque entrée prend le slot libre qui repousse le plus tard possible sa
+// rencontre avec l'ancre de sa poule (moitié opposée dès que possible), à égalité le
+// plus petit ; sans ancre de même poule, le plus petit slot libre. Quand le tableau
+// est plein, les tables 8, 16 et 32 rendent l'identité (2e de la poule i → slot n + i).
+// Vérifié pour 2 à 16 poules : toutes les paires 1er/2e ne se croisent qu'en finale.
+const assignPartnerSlots = (size, anchors, block, [from, to]) => {
+  const free = [];
+  for (let s = from; s <= to; s++) free.push(s);
+  return block.map(entry => {
+    const anchor = anchors.find(a => a.poolId === entry.poolId);
+    let best = free[0];
+    if (anchor !== undefined) {
+      const anchorPos = patternIndex(size, anchor.slot);
+      let bestRound = -1;
+      free.forEach(s => {
+        const r = meetingRound(anchorPos, patternIndex(size, s));
+        if (r > bestRound) { bestRound = r; best = s; }
+      });
+    }
+    free.splice(free.indexOf(best), 1);
+    return best;
+  });
+};
+
 // --- Tableau principal : qualifiés et placement --------------------------------
 // Source unique de la composition du tableau principal. Renvoie :
 //   seeds    : joueurs dans l'ORDRE DES POSITIONS du tableau (via buildSeedingPattern) ;
 //              null = slot vide (barrage en attente en mode 'barrage', bye en mode 'byes')
-//   seedList : une entrée par numéro de TS, dans l'ordre : { seed, player, poolId,
+//   seedList : une entrée par numéro de TS, dans l'ordre : { seed, slot, player, poolId,
 //              poolRank (1 | 2 | 3 = vainqueur de barrage), bye } ; player = null tant
-//              qu'un barrage n'est pas joué ; bye = exempté de 1er tour
-// Numérotation des TS :
-//   modes 'direct' / 'barrage' — ORDRE DES POULES : 1er de A = TS1, …, puis les 2es dans
-//     le même ordre, puis les vainqueurs de barrage (slot FIXE par barrage : un barrage non
-//     joué laisse son slot vide au lieu de décaler les autres). Comme le pattern apparie
-//     TS i et TS B+1−i, un 1er ne rencontre jamais son 2e au 1er tour.
-//   mode 'byes' — les seeds vides 2n+1..B donnent mécaniquement un bye aux TS 1..k : les
-//     petits numéros doivent donc aller aux meilleurs. 1ers triés par crossPoolCompare sur
-//     TS1..n ; 2es placés par un glouton de TS 2n vers TS n+1 : l'adversaire de 1er tour de
-//     TS j est TS B+1−j ; si c'est un 1er, on prend le moins bon 2e restant qui n'est pas de
-//     sa poule, sinon le moins bon restant. Les meilleurs 2es gardent ainsi les petits
-//     numéros (exemptés quand k > n) et un 2e ne rencontre jamais son 1er. Jamais bloquant :
-//     à j = n+1 l'adversaire est TS B−n > n (pas un 1er), et pour j ≥ n+2 il reste ≥ 2 candidats.
+//              qu'un barrage n'est pas joué ; bye = exempté de 1er tour ; slot = numéro
+//              de seed du pattern où la TS est placée (= seed sauf pour les 2es d'un
+//              tableau non plein, cf. ci-dessous)
+// Numérotation des TS — ORDRE DES POULES dans tous les modes, jamais au mérite (les
+// statistiques ne classent qu'à l'intérieur d'une poule) : 1er de A = TS1, 1er de B =
+// TS2, …, puis les 2es dans le même ordre (2e de A = TS n+1), puis les vainqueurs de
+// barrage (slot FIXE par barrage : un barrage non joué laisse son slot vide au lieu de
+// décaler les autres).
+// Placement : les 1ers et les vainqueurs de barrage sont placés à leur numéro. Les 2es
+// occupent les seeds n+1..2n du pattern, mais pas forcément à leur numéro : le 1er et
+// le 2e d'une même poule doivent se rejouer le plus tard possible (moitiés opposées),
+// ce que assignPartnerSlots garantit. Tableau plein (4, 8, 16 poules) : slot = numéro.
+// Mode 'byes' : les seeds 2n+1..B sont vides, une TS dont le voisin de position est
+// vide est exemptée de 1er tour — ce n'est pas « les meilleurs », c'est le pattern.
 // Les joueurs renvoyés sont les objets de classement de poule ({ id, name, v, d, sf… }).
 const buildPrincipalSeeds = ({ pools, players, results, barrageResults }) => {
   const n = pools.length;
@@ -460,6 +511,7 @@ const buildPrincipalSeeds = ({ pools, players, results, barrageResults }) => {
     .map(({ pool, st }) => (st[rank] ? { player: st[rank], poolId: pool.id } : null))
     .filter(Boolean);
   const firstEntries = atRank(0), secondEntries = atRank(1), thirdEntries = atRank(2);
+  // Seul usage du mérite inter-poules : choisir les 3es qui disputent les barrages.
   const byMerit = (a, b) => crossPoolCompare(a.player, b.player);
 
   const struct = computeBracketStructure(n * 2, thirdEntries.length);
@@ -478,38 +530,37 @@ const buildPrincipalSeeds = ({ pools, players, results, barrageResults }) => {
     return r.winner === 1 ? r.p1 : r.p2;
   });
 
-  const seedMap = {};   // numéro de TS → { player, poolId, poolRank }
-  if (struct.mode === 'byes') {
-    [...firstEntries].sort(byMerit).forEach((e, i) => { seedMap[i + 1] = { ...e, poolRank: 1 }; });
-    const remaining = [...secondEntries].sort(byMerit);          // du meilleur au moins bon
-    for (let j = n + secondEntries.length; j > n; j--) {
-      const opp = seedMap[bracketSize + 1 - j];                   // adversaire de 1er tour (undefined = vide)
-      let idx = remaining.length - 1;                             // le moins bon restant
-      if (opp?.poolRank === 1) {
-        while (idx > 0 && remaining[idx].poolId === opp.poolId) idx--;
-      }
-      seedMap[j] = { ...remaining.splice(idx, 1)[0], poolRank: 2 };
-    }
-  } else {
-    firstEntries.forEach((e, i)   => { seedMap[i + 1] = { ...e, poolRank: 1 }; });
-    secondEntries.forEach((e, i)  => { seedMap[n + i + 1] = { ...e, poolRank: 2 }; });
-    barrageWinners.forEach((p, i) => { if (p) seedMap[n + secondEntries.length + i + 1] = { player: p, poolId: null, poolRank: 3 }; });
-  }
+  // Numérotation (ordre des poules) : numéro de TS → { player, poolId, poolRank, slot }
+  const seedMap = {};
+  firstEntries.forEach((e, i) => { seedMap[i + 1] = { ...e, poolRank: 1, slot: i + 1 }; });
+  const anchors = firstEntries.map((e, i) => ({ poolId: e.poolId, slot: i + 1 }));
+  const secondSlots = assignPartnerSlots(bracketSize, anchors, secondEntries, [n + 1, n + secondEntries.length]);
+  secondEntries.forEach((e, i) => { seedMap[n + i + 1] = { ...e, poolRank: 2, slot: secondSlots[i] }; });
+  barrageWinners.forEach((p, i) => {
+    const seed = n + secondEntries.length + i + 1;
+    if (p) seedMap[seed] = { player: p, poolId: null, poolRank: 3, slot: seed };
+  });
+
+  // Placement : seed du pattern → entrée
+  const slotMap = {};
+  Object.values(seedMap).forEach(e => { slotMap[e.slot] = e; });
 
   const qualifiedCount = n + secondEntries.length + barrageMatches.length;
   const seedList = Array.from({ length: qualifiedCount }, (_, i) => {
     const seed = i + 1, e = seedMap[seed];
+    const slot = e?.slot ?? seed;
     return {
       seed,
+      slot,
       player: e?.player || null,
       poolId: e?.poolId ?? null,
       poolRank: e?.poolRank ?? 3,
-      // Exempté : en mode byes, la TS d'en face (B+1−seed) n'existe pas.
-      bye: struct.mode === 'byes' && !seedMap[bracketSize + 1 - seed],
+      // Exempté : en mode byes, le voisin de position dans le pattern est vide.
+      bye: struct.mode === 'byes' && !slotMap[firstRoundOpponent(bracketSize, slot)],
     };
   });
 
-  const seeds = buildSeedingPattern(bracketSize).map(seedNum => seedMap[seedNum]?.player || null);
+  const seeds = buildSeedingPattern(bracketSize).map(seedNum => slotMap[seedNum]?.player || null);
   const firsts = firstEntries.map(e => e.player), seconds = secondEntries.map(e => e.player);
   return { struct, bracketSize, seeds, seedList, firsts, seconds, barrageWinners, barrageMatches };
 };
@@ -693,4 +744,4 @@ const randomPlayers = (count) => {
   });
 };
 
-Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, poolCompare, crossPoolCompare, computeBracketStructure, buildSeedingPattern, buildPrincipalSeeds, pruneBarrageResults, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });
+Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, poolCompare, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, buildPrincipalSeeds, pruneBarrageResults, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });

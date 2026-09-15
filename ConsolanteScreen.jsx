@@ -183,21 +183,24 @@ const ConsolanteScreen = ({ theme, players, pools, results, barrageResults, brac
   };
 
   const autoPlace = () => {
-    const seedToEntry = {};
-    eligibleList.forEach(e => { seedToEntry[e.seed] = e; });
-    // Même placement que le tableau principal (AppShell.buildSeedingPattern)
-    const pattern = window.buildSeedingPattern(bracketSize);
+    // Même règle que le tableau principal (AppShell.buildPrincipalSeeds) : les 3es
+    // (perdants de barrage puis 3es directs, TS 1..a) sont placés à leur numéro ; les
+    // 4es (TS a+1..a+b) occupent les seeds a+1..a+b du pattern, chacun en moitié
+    // opposée du 3e de sa poule (AppShell.assignPartnerSlots) pour ne le rejouer que
+    // le plus tard possible. Tableau plein : chacun à son numéro.
+    const ordered = [...eligibleList].sort((a, b) => a.seed - b.seed);
+    const thirds = ordered.filter(e => categoryRank(e.label) < 2);
+    const fourths = ordered.filter(e => categoryRank(e.label) === 2);
+    const anchors = thirds.map(e => ({ poolId: e.poolId, slot: e.seed }));
+    const fourthSlots = window.assignPartnerSlots(bracketSize, anchors, fourths, [thirds.length + 1, thirds.length + fourths.length]);
+    const slotToPlayer = {};
+    thirds.forEach(e => { slotToPlayer[e.seed] = e.player; });
+    fourths.forEach((e, i) => { slotToPlayer[fourthSlots[i]] = e.player; });
 
-    // Place tous les joueurs selon le pattern (réécrit les slots).
-    // Les seeds sans joueur correspondant deviennent des byes — ils tombent
-    // naturellement face aux meilleures TS (TS1 affronte le bye de seed le + élevé, etc.)
-    const next = Array(bracketSize).fill(null);
-    for (let slot = 0; slot < bracketSize; slot++) {
-      const targetSeed = pattern[slot];
-      const entry = seedToEntry[targetSeed];
-      if (entry) next[slot] = entry.player;
-    }
-    setSeeds(next);
+    // Réécrit tous les slots selon le pattern (AppShell.buildSeedingPattern). Les seeds
+    // sans joueur deviennent des byes, face aux TS que le pattern désigne.
+    const pattern = window.buildSeedingPattern(bracketSize);
+    setSeeds(pattern.map(targetSeed => slotToPlayer[targetSeed] || null));
   };
 
   // Données de test : scores aléatoires sur tous les matchs restants (les résultats

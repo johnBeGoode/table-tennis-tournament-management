@@ -133,7 +133,7 @@ const BarrageScreen = ({ theme, players, pools, results, barrageResults, setsToW
           <div style={{ fontSize: 13, color: t.textSecondary, lineHeight: 1.6, marginBottom: 18 }}>
             Avec {pools.length} poules, les 1ers et 2es ({autoQualifiers} joueurs) sont tous qualifiés mais ne remplissent pas
             un tableau de {BRACKET_SIZE}, et il n'y a pas assez de 3es pour organiser {BRACKET_SIZE - autoQualifiers} barrages.
-            Les {k} meilleurs qualifiés (1ers puis 2es, au mérite inter-poules) sont donc exemptés de 1er tour :
+            Les {k} TS dont l'adversaire de 1er tour n'existe pas dans le tableau de {BRACKET_SIZE} sont donc exemptées de 1er tour :
             le tableau retombe sur {BRACKET_SIZE / 2} joueurs au tour suivant. Les 3es et 4es vont directement en consolante.
           </div>
           <div style={{ fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10 }}>

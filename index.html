@@ -20,9 +20,9 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=24"></script>
+<script type="text/babel" src="AppShell.jsx?v=26"></script>
 <script type="text/babel" src="PoolsScreen.jsx?v=18"></script>
-<script type="text/babel" src="BracketsScreen.jsx?v=18"></script>
+<script type="text/babel" src="BracketsScreen.jsx?v=19"></script>
 <script type="text/babel" src="ResultsScreen.jsx?v=15"></script>
 <script type="text/babel">
 // KnockoutScreen — Tableau principal dynamique (n poules), classement intégral
@@ -364,8 +364,8 @@ const KnockoutScreen = ({ theme, players, pools, results, barrageResults, bracke
 Object.assign(window, { KnockoutScreen });
 
 </script>
-<script type="text/babel" src="BarrageScreen.jsx?v=11"></script>
-<script type="text/babel" src="ConsolanteScreen.jsx?v=16"></script>
+<script type="text/babel" src="BarrageScreen.jsx?v=12"></script>
+<script type="text/babel" src="ConsolanteScreen.jsx?v=17"></script>
 
 <script type="text/babel">
 const DEFAULT_SCREEN = /*EDITMODE-BEGIN*/"consolante"/*EDITMODE-END*/;
@@ -412,17 +412,24 @@ const App = () => {
     });
     return migrated;
   });
-  // Migration one-shot (schéma 2) : le mode 'byes' a remplacé 'eliminate'. Un tournoi qui
-  // était en 'eliminate' change de taille de tableau (8→16, 16→32) et de composition de
-  // consolante : les résultats de tableau saisis avant ne correspondent plus aux matchs
-  // portant les mêmes ids, et buildIntegralBracket propagerait leurs copies de joueurs.
-  // On les jette, une fois, seulement si le tournoi courant est en mode 'byes'.
-  const BRACKET_SCHEMA = 2;
+  // Migration one-shot des résultats de tableau (clé `ertt-bracket-schema`) :
+  //   2 : le mode 'byes' a remplacé 'eliminate' — purge si le tournoi est en mode 'byes'
+  //       (autre taille de tableau, autre consolante) ;
+  //   3 : nouvelles tables de placement 8/16/32 et 2es placés en moitié opposée de leur
+  //       1er — les ids `principal-r1-N` ne désignent plus les mêmes joueurs, purge
+  //       dans tous les modes (le placement consolante est jeté par sa clé v5).
+  // Sans purge, buildIntegralBracket propagerait les copies de joueurs des anciens
+  // résultats dans un tableau qui ne les contient plus à ces positions.
+  const BRACKET_SCHEMA = 3;
   const [bracketResults, setBracketResults] = React.useState(() => {
     const raw = loadState('ertt-bracket-results', {});
-    if (loadState('ertt-bracket-schema', 1) >= BRACKET_SCHEMA) return raw;
-    const { struct } = window.buildPrincipalSeeds({ pools, players, results, barrageResults: {} });
-    return struct.mode === 'byes' ? {} : raw;
+    const schema = loadState('ertt-bracket-schema', 1);
+    if (schema >= BRACKET_SCHEMA) return raw;
+    if (schema < 2) {
+      const { struct } = window.buildPrincipalSeeds({ pools, players, results, barrageResults: {} });
+      if (struct.mode === 'byes') return {};
+    }
+    return {};
   });
   React.useEffect(() => { saveState('ertt-bracket-schema', BRACKET_SCHEMA); }, []);
   const [barrageResults, setBarrageResults] = React.useState(() => loadState('ertt-barrage-results', {}));

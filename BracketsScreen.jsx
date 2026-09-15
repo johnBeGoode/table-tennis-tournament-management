@@ -211,7 +211,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
     const allStats = buildStats();
 
     // Composition et numérotation des TS : source unique (AppShell.buildPrincipalSeeds) —
-    // ordre des poules en direct/barrage, mérite + protection des poules en mode byes.
+    // ordre des poules dans tous les modes (1ers puis 2es), jamais au mérite.
     // On ne fait ici que rhabiller chaque TS avec ses stats de poule (poule · rang, V, D).
     const { struct, seedList } = window.buildPrincipalSeeds({ pools, players, results, barrageResults });
     const statsById = {};
@@ -247,7 +247,7 @@ const BracketsScreen = ({ theme, players, pools, results, barrageResults, bracke
               <div style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary }}>
                 {struct.mode === 'direct' && '1ers → 2es (tableau direct)'}
                 {struct.mode === 'barrage' && `1ers → 2es → ${struct.barrageCount} vainqueur${struct.barrageCount > 1 ? 's' : ''} barrage`}
-                {struct.mode === 'byes' && `1ers puis 2es au mérite · ${struct.byeCount} exempté${struct.byeCount > 1 ? 's' : ''} de 1er tour`}
+                {struct.mode === 'byes' && `1ers → 2es (ordre des poules) · ${struct.byeCount} exempté${struct.byeCount > 1 ? 's' : ''} de 1er tour`}
               </div>
             </div>
           </div>
