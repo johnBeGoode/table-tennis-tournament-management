@@ -20,8 +20,8 @@ Organize a friendly table tennis tournament within your club or enterprise.
 ## Features
 - Automatic assignment of players to group stage
 - Players ranking in the group stage
-- Playoff management
 - Main bracket management
+- Placement matches
 - Consolation bracket management
 - Automatic players matching
 - Anti-collision rule
