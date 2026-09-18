@@ -49,7 +49,7 @@ const QualificationScreen = ({ theme, players, pools, results }) => {
   }
 
   const Badge = () => (
-    <span style={{ background: accentColor, color: '#fff', borderRadius: 6, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>Qualification</span>
+    <span style={{ background: accentColor, color: '#fff', borderRadius: 6, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>Informations</span>
   );
   const Pending = () => (
     <div style={{ fontSize: 12, color: t.textSecondary, fontStyle: 'italic' }}>

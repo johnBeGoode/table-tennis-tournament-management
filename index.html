@@ -20,12 +20,12 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=32"></script>
+<script type="text/babel" src="AppShell.jsx?v=33"></script>
 <script type="text/babel" src="PoolsScreen.jsx?v=19"></script>
 <script type="text/babel" src="BracketsScreen.jsx?v=21"></script>
 <script type="text/babel" src="ResultsScreen.jsx?v=15"></script>
 <script type="text/babel" src="KnockoutScreen.jsx?v=1"></script>
-<script type="text/babel" src="QualificationScreen.jsx?v=3"></script>
+<script type="text/babel" src="QualificationScreen.jsx?v=4"></script>
 <script type="text/babel" src="ConsolanteScreen.jsx?v=22"></script>
 
 <script type="text/babel">
@@ -44,7 +44,7 @@ window.resetTabPreferences();
 
 const App = () => {
   const theme = THEME;
-  // L'écran « Barrages » est devenu « Qualification » : un ancien id mémorisé y renvoie.
+  // L'écran « Barrages » est devenu « Informations » (id `qualification`) : un ancien id mémorisé y renvoie.
   const [screen, setScreen] = React.useState(() => {
     const saved = loadState('ertt-screen', DEFAULT_SCREEN);
     return saved === 'barrage' ? 'qualification' : saved;

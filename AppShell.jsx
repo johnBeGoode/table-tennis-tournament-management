@@ -34,7 +34,7 @@ const NAV_ITEMS = [
   { id: 'poules',     label: 'Poules',             icon: 'fas fa-layer-group' },
   { id: 'resultats',  label: 'Résultats',           icon: 'fas fa-table-tennis-paddle-ball' },
   { id: 'brackets',   label: 'Classements',         icon: 'fas fa-sitemap' },
-  { id: 'qualification', label: 'Qualification',    icon: 'fas fa-user-check' },
+  { id: 'qualification', label: 'Informations',     icon: 'fas fa-user-check' },
   { id: 'principal',  label: 'Tableau principal',   icon: 'fas fa-trophy' },
   { id: 'consolante', label: 'Consolante',          icon: 'fas fa-shield-halved' },
 ];
