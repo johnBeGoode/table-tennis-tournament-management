@@ -11,7 +11,10 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
   const [showAutoDraw, setShowAutoDraw] = React.useState(false); // modale de répartition automatique
   const [autoPoolCount, setAutoPoolCount] = React.useState(null); // null = valeur par défaut (poules de 4)
   const [confirmUnlock, setConfirmUnlock] = React.useState(false); // modale de déverrouillage des poules
+  const [csvPreview, setCsvPreview] = React.useState(null); // aperçu de l'import CSV avant validation
+  const [csvError, setCsvError] = React.useState(null);     // fichier illisible ou vide
   const nameInputRef = React.useRef(null); // pour rendre le focus au nom après chaque ajout
+  const csvInputRef = React.useRef(null);  // <input type="file"> caché, ouvert par le bouton « Importer »
 
   // Format verrouillé dès qu'un match de poule a un résultat enregistré
   const formatLocked = Object.keys(results || {}).some(k => k.startsWith('pool-'));
@@ -38,6 +41,80 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
     setNewRanking('');
     // Saisie en rafale : le curseur revient au nom, jamais au classement.
     nameInputRef.current?.focus();
+  };
+
+  // ─── Import CSV ───────────────────────────────────────────────────────────
+  // Le parseur (`window.parsePlayersCsv`, AppShell) fait la lecture ; l'écran ne
+  // s'occupe que du fichier, des doublons et de la confirmation.
+
+  // Clé de comparaison des noms : casse, accents et espaces multiples ignorés —
+  // « Léa Martin » et « lea  martin » désignent le même joueur.
+  const nameKey = (name) => name.trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+
+  // UTF-8 d'abord, repli Windows-1252 si le décodage a produit des caractères de
+  // remplacement : c'est l'encodage des CSV exportés par les Excel français, et
+  // sans ce repli tous les noms accentués arrivent en charabia.
+  const readCsvFile = async (file) => {
+    const buffer = await file.arrayBuffer();
+    const utf8 = new TextDecoder('utf-8').decode(buffer);
+    return utf8.includes('\uFFFD') ? new TextDecoder('windows-1252').decode(buffer) : utf8;
+  };
+
+  const handleCsvFile = async (file) => {
+    if (!file) return;
+    let parsed;
+    try {
+      parsed = window.parsePlayersCsv(await readCsvFile(file));
+    } catch (err) {
+      setCsvPreview(null);
+      setCsvError(`« ${file.name} » n'a pas pu être lu.`);
+      return;
+    }
+    // Fichier qui n'est pas du texte, malgré l'extension. Le cas de loin le plus
+    // fréquent : un document TextEdit resté en texte enrichi, enregistré en .csv.
+    if (parsed.error) {
+      setCsvPreview(null);
+      setCsvError({
+        rtf: `« ${file.name} » est un document en texte enrichi (RTF), pas un fichier texte. Dans TextEdit : menu Format ▸ « Convertir au format Texte », puis enregistrer.`,
+        zip: `« ${file.name} » est un classeur (Excel, Numbers…), pas un CSV. Depuis le tableur : Fichier ▸ Exporter / Enregistrer sous ▸ CSV.`,
+        pdf: `« ${file.name} » est un PDF, pas un fichier texte.`,
+      }[parsed.error] || `« ${file.name} » n'est pas un fichier texte.`);
+      return;
+    }
+    if (parsed.players.length === 0 && parsed.ignored.length === 0) {
+      setCsvPreview(null);
+      setCsvError(`Aucun joueur trouvé dans « ${file.name} ».`);
+      return;
+    }
+    // Doublons : dans le fichier lui-même comme avec les joueurs déjà saisis.
+    // Ils sont écartés, mais listés dans l'aperçu — jamais perdus en silence.
+    const seen = new Set(players.map(p => nameKey(p.name)));
+    const toImport = [], duplicates = [];
+    parsed.players.forEach(entry => {
+      const key = nameKey(entry.name);
+      if (seen.has(key)) { duplicates.push(entry); return; }
+      seen.add(key);
+      toImport.push(entry);
+    });
+    setCsvError(null);
+    setCsvPreview({ fileName: file.name, players: toImport, ignored: parsed.ignored, duplicates });
+  };
+
+  // Les joueurs importés s'ajoutent à la liste, ils ne la remplacent pas.
+  // Un seul appel à Date.now() pour toute la fournée (ids en double sinon), et
+  // jamais en dessous du plus grand id existant : deux imports dans la même
+  // milliseconde ne doivent pas se marcher dessus.
+  const applyCsvImport = () => {
+    const entries = csvPreview?.players || [];
+    if (entries.length) {
+      onUpdatePlayers(prev => {
+        const base = Math.max(Date.now(), ...prev.map(p => p.id).filter(Number.isFinite), 0) + 1;
+        return [...prev, ...entries.map((entry, i) => ({ id: base + i, name: entry.name, ranking: entry.ranking }))];
+      });
+    }
+    setCsvPreview(null);
   };
 
   // Meilleur classé (points les plus élevés) en premier ; non classés relégués en fin de liste.
@@ -200,10 +277,31 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
 
       {/* Left: player list */}
       <div style={{ width: 260, flexShrink: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.5px' }}>
             Joueurs ({players.length})
           </div>
+          {/* Import CSV — comme la saisie manuelle, masqué quand les poules sont verrouillées */}
+          {!locked && (
+            <React.Fragment>
+              <input
+                ref={csvInputRef}
+                type="file"
+                accept=".csv,.txt,text/csv,text/plain"
+                style={{ display: 'none' }}
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  e.target.value = ''; // même fichier réimportable juste après
+                  handleCsvFile(file);
+                }}
+              />
+              <button onClick={() => csvInputRef.current?.click()}
+                title="Importer une liste de joueurs depuis un fichier CSV (Nom;Points)"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', color: t.primary, border: `1.5px solid ${t.primary}55`, borderRadius: 8, padding: '5px 10px', fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <i className="fas fa-file-arrow-up"></i>Importer (.csv)
+              </button>
+            </React.Fragment>
+          )}
         </div>
 
         {/* Add player — masqué quand les poules sont verrouillées */}
@@ -606,6 +704,108 @@ const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsTo
           </div>
         );
       })()}
+
+
+      {/* Modale d'aperçu de l'import CSV — rien n'est ajouté avant confirmation */}
+      {csvPreview && (() => {
+        const { fileName, players: toImport, ignored, duplicates } = csvPreview;
+        const warnings = [
+          duplicates.length && `${duplicates.length} doublon${duplicates.length > 1 ? 's' : ''} écarté${duplicates.length > 1 ? 's' : ''} : ${duplicates.map(d => d.name).join(', ')}`,
+          ignored.length && `${ignored.length} ligne${ignored.length > 1 ? 's' : ''} sans nom ignorée${ignored.length > 1 ? 's' : ''} (ligne${ignored.length > 1 ? 's' : ''} ${ignored.map(l => l.line).join(', ')})`,
+        ].filter(Boolean);
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
+            onClick={() => setCsvPreview(null)}>
+            <div style={{ background: t.cardBg, borderRadius: 14, padding: '26px 28px 22px', width: 560, maxWidth: '92vw', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 16px 48px rgba(0,0,0,0.2)' }}
+              onClick={e => e.stopPropagation()}>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: `${t.primary}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <i className="fas fa-file-csv" style={{ color: t.primary, fontSize: 15 }}></i>
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: t.textPrimary }}>
+                    {toImport.length} joueur{toImport.length > 1 ? 's' : ''} à importer
+                  </div>
+                  <div style={{ fontSize: 12, color: t.textSecondary, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {fileName} — ajoutés à la liste existante
+                  </div>
+                </div>
+              </div>
+
+              {/* Aperçu ligne à ligne : le classement affiché est celui qui sera
+                  enregistré, plancher de 500 compris. */}
+              <div style={{ flex: 1, overflowY: 'auto', border: `1px solid ${t.tableBorder}`, borderRadius: 10 }}>
+                {toImport.length === 0 && (
+                  <div style={{ padding: '24px 16px', textAlign: 'center', color: t.textSecondary, fontSize: 13 }}>
+                    Aucun joueur à ajouter
+                  </div>
+                )}
+                {toImport.map((entry, i) => (
+                  <div key={`${entry.line}-${entry.name}`} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                    padding: '8px 14px',
+                    borderBottom: i < toImport.length - 1 ? `1px solid ${t.tableBorder}` : 'none',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <span style={{ fontSize: 11, color: t.textSecondary, fontWeight: 600, minWidth: 22, textAlign: 'right' }}>{i + 1}</span>
+                      <span style={{ fontSize: 13, color: t.textPrimary, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.name}</span>
+                    </div>
+                    <span style={{ fontSize: 12, color: t.textSecondary, fontWeight: 700, flexShrink: 0 }}>{entry.ranking}</span>
+                  </div>
+                ))}
+              </div>
+
+              {warnings.length > 0 && (
+                <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 8, background: '#fff8ec', border: '1px solid #f5dfb8', fontSize: 12, color: '#8a6212', lineHeight: 1.5 }}>
+                  {warnings.map((w, i) => (
+                    <div key={i} style={{ marginTop: i > 0 ? 4 : 0 }}>
+                      <i className="fas fa-triangle-exclamation" style={{ marginRight: 6 }}></i>{w}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+                <button onClick={() => setCsvPreview(null)}
+                  style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: `1.5px solid ${t.tableBorder}`, background: 'transparent', color: t.textSecondary, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                  Annuler
+                </button>
+                <button onClick={applyCsvImport}
+                  disabled={toImport.length === 0}
+                  style={{ flex: 1, padding: '10px', borderRadius: t.btnRadius, border: 'none', background: t.primary, color: '#fff', fontWeight: 700, fontSize: 13, cursor: toImport.length === 0 ? 'not-allowed' : 'pointer', opacity: toImport.length === 0 ? 0.45 : 1 }}>
+                  <i className="fas fa-file-arrow-up" style={{ marginRight: 6 }}></i>Importer
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modale d'erreur d'import — fichier illisible ou sans aucun joueur */}
+      {csvError && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
+          onClick={() => setCsvError(null)}>
+          <div style={{ background: t.cardBg, borderRadius: 14, padding: '28px 28px 22px', width: 340, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#fff0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <i className="fas fa-file-circle-exclamation" style={{ color: '#f96b6b', fontSize: 18 }}></i>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.textPrimary, marginBottom: 8 }}>
+              Import impossible
+            </div>
+            <div style={{ fontSize: 13, color: t.textSecondary, marginBottom: 24, lineHeight: 1.5 }}>
+              {csvError}<br />
+              Format attendu : une ligne par joueur, « Nom;Points ».
+            </div>
+            <button onClick={() => setCsvError(null)}
+              style={{ width: '100%', padding: '10px', borderRadius: t.btnRadius, border: 'none', background: t.primary, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
 
       </div>
     </div>

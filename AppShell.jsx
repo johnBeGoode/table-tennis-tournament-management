@@ -834,4 +834,147 @@ const randomPlayers = (count) => {
   });
 };
 
-Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, poolCompare, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, assignBracketSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking });
+// ─── Import CSV de joueurs ──────────────────────────────────────────────────
+// **Deux données par ligne, et deux seulement : le nom (nom, prénom ou les deux)
+// et le classement** — « Dupont Jean;1245 ». Rien d'autre n'est attendu : ni n°
+// de licence, ni club, ni catégorie.
+// La mise en forme, elle, reste tolérante (les fichiers sortent d'Excel) :
+//   • séparateur deviné parmi `;`, `,` et la tabulation (le point-virgule des
+//     Excel français en cas d'égalité) ;
+//   • en-tête optionnel — une première ligne de libellés sans aucune valeur
+//     numérique — reconnu et ignoré ;
+//   • guillemets RFC 4180 : `""` pour un guillemet littéral, séparateur et
+//     saut de ligne autorisés à l'intérieur ;
+//   • BOM, CRLF, espaces parasites et séparateurs en trop en fin de ligne.
+// Lecture d'une ligne, **par position** : la **dernière** cellule est le
+// classement dès qu'elle en a l'air (nombre, marqueur « NC », ou rien qui
+// ressemble à un mot) ; tout le reste forme le nom. Une dernière cellule qui est
+// visiblement un mot est donc rattachée au nom plutôt que perdue — « Dupont;Jean »
+// donne « Dupont Jean » à 500, pas « Dupont » tout court. Un classement absent,
+// illisible ou hors de portée (> CSV_MAX_RANKING : faute de frappe, n° de licence)
+// retombe sur le plancher via `normalizeRanking` — jamais d'erreur, la valeur
+// retenue est montrée dans l'aperçu avant import. Les lignes sans nom sont
+// rejetées dans `ignored` : à charge de l'écran de les montrer, jamais de les
+// perdre en silence.
+const CSV_MAX_RANKING = 9999;      // borne de plausibilité d'un classement FFTT
+const CSV_DELIMITERS = [';', ',', '\t'];
+const CSV_HEADER_WORDS = /^(nom|noms|name|names|joueur|joueuse|joueurs|player|players|prénom|prenom|prénoms|prenoms|classement|classements|points|pts|rang|rank|ranking|licence|license|club|catégorie|categorie)$/i;
+
+// Un nombre entier ou décimal (virgule ou point), seul dans sa cellule.
+const CSV_NUMBER = /^-?\d+(?:[.,]\d+)?$/;
+const csvCellNumber = (cell) => {
+  const s = String(cell).trim();
+  if (!CSV_NUMBER.test(s)) return null;
+  const n = parseFloat(s.replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+};
+
+// « Pas de classement », tel que les clubs l'écrivent dans la colonne points.
+const CSV_NO_RANKING = /^(nc|n\.?c\.?|non[\s-]?class[ée]e?s?|loisir|d[ée]butant)$/i;
+
+// La dernière cellule est-elle un classement ? Un nombre, un marqueur « NC », ou
+// quelque chose sans la moindre lettre (« - », « ? », vide) : oui. Un mot : non,
+// c'est une part du nom (« Dupont;Jean »), et le joueur sera compté à 500.
+const csvIsRankingCell = (cell) => {
+  const s = String(cell).trim();
+  return csvCellNumber(s) !== null || CSV_NO_RANKING.test(s) || !/\p{L}/u.test(s);
+};
+
+// Séparateur le plus fréquent sur les premières lignes non vides. Un séparateur
+// à l'intérieur de guillemets fausse un peu le compte : sans conséquence, il
+// faudrait qu'il soit plus fréquent que le vrai séparateur pour l'emporter.
+const detectCsvDelimiter = (text) => {
+  const sample = text.split(/\r?\n/).filter(l => l.trim()).slice(0, 5).join('\n');
+  let best = ';', bestCount = 0;
+  CSV_DELIMITERS.forEach(d => {
+    const count = sample.split(d).length - 1;
+    if (count > bestCount) { best = d; bestCount = count; }
+  });
+  return best;
+};
+
+// Découpe le texte en lignes de cellules. Automate à deux états (dans / hors
+// guillemets) : c'est le seul moyen de gérer un séparateur ou un saut de ligne
+// à l'intérieur d'un champ cité, qu'un `split` manquerait.
+const parseCsvRows = (text, delimiter) => {
+  const src = String(text).replace(/^﻿/, '');   // BOM des exports Excel
+  const rows = [];
+  let row = [], cell = '', quoted = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (quoted) {
+      if (c !== '"') { cell += c; continue; }
+      if (src[i + 1] === '"') { cell += '"'; i++; continue; } // `""` littéral
+      quoted = false;
+      continue;
+    }
+    if (c === '"' && cell.trim() === '') { quoted = true; cell = ''; continue; }
+    if (c === delimiter) { row.push(cell); cell = ''; continue; }
+    if (c === '\n' || c === '\r') {
+      if (c === '\r' && src[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+      continue;
+    }
+    cell += c;
+  }
+  row.push(cell);
+  rows.push(row);
+  return rows;
+};
+
+// En-tête : au moins un libellé connu et aucune valeur numérique. Sans la
+// seconde condition, une ligne « Points;1245 » (un joueur nommé « Points »…)
+// ou un fichier dont la première colonne s'appelle comme un joueur passerait.
+const isCsvHeaderRow = (row) =>
+  row.some(c => CSV_HEADER_WORDS.test(String(c).trim())) &&
+  !row.some(c => csvCellNumber(c) !== null);
+
+// Un CSV est un fichier **texte**. Les signatures ci-dessous repèrent les
+// fichiers qui n'en sont pas mais en portent l'extension — le cas courant étant
+// le document TextEdit laissé en texte enrichi, que macOS enregistre en RTF sans
+// broncher quand on le nomme « .csv ». Sans ce garde-fou, la lecture réussit et
+// produit des joueurs nommés « {\rtf1\ansi… » : mieux vaut un refus explicite.
+const CSV_NOT_TEXT = [
+  { code: 'rtf', test: /^\s*\{\\rtf/ },            // TextEdit en texte enrichi
+  { code: 'zip', test: /^PK\x03\x04/ },             // .xlsx, .numbers, .ods renommé
+  { code: 'pdf', test: /^\s*%PDF-/ },
+];
+
+// `text` (contenu brut du fichier) → `{ players: [{ name, ranking, line }],
+// ignored: [{ line, raw }], error }`. `error` (code de `CSV_NOT_TEXT`) signale un
+// fichier qui n'est pas du texte : la liste est alors vide, à l'écran d'expliquer.
+// Ne crée aucun id : c'est l'appelant qui les attribue (un seul `Date.now()`,
+// cf. le piège des ids dupliqués).
+const parsePlayersCsv = (text) => {
+  const head = String(text || '').slice(0, 64);
+  const notText = CSV_NOT_TEXT.find(f => f.test.test(head));
+  if (notText) return { players: [], ignored: [], error: notText.code };
+  const delimiter = detectCsvDelimiter(text || '');
+  const rows = parseCsvRows(text || '', delimiter);
+  const players = [], ignored = [];
+  rows.forEach((row, i) => {
+    const line = i + 1;
+    if (row.every(c => !String(c).trim())) return;            // ligne vide
+    if (i === 0 && isCsvHeaderRow(row)) return;               // en-tête
+    const cells = row.map(c => String(c).trim());
+    const raw = cells.join(delimiter === '\t' ? ' ' : delimiter);
+    // Séparateurs en trop en fin de ligne (« Dupont;1245;; ») : sans ce nettoyage,
+    // la cellule vide finale passerait pour le classement et « 1245 » pour le nom.
+    while (cells.length > 1 && !cells[cells.length - 1]) cells.pop();
+    const rankingCell = cells.length > 1 && csvIsRankingCell(cells[cells.length - 1])
+      ? cells.pop()
+      : null;
+    const name = cells.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    // Sans la moindre lettre, ce n'est pas un nom : ligne de total, colonne isolée…
+    if (!/\p{L}/u.test(name)) { ignored.push({ line, raw }); return; }
+    const n = rankingCell === null ? null : csvCellNumber(rankingCell);
+    players.push({
+      name,
+      ranking: normalizeRanking(n !== null && n > 0 && n <= CSV_MAX_RANKING ? Math.round(n) : null),
+      line,
+    });
+  });
+  return { players, ignored, error: null };
+};
+
+Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, poolCompare, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, assignBracketSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking, parsePlayersCsv });
