@@ -1,7 +1,7 @@
 // ConsolanteScreen — Tableau consolante avec placement manuel par drag & drop,
 // en classement intégral (structure : AppShell.buildIntegralBracket, avec byes)
 
-const ConsolanteScreen = ({ theme, players, pools, results, bracketResults, onUpdateBracketResults, testMode }) => {
+const ConsolanteScreen = ({ theme, players, pools, results, bracketResults, onUpdateBracketResults, tables = {}, onUpdateTables, testMode }) => {
   const t = window.THEMES[theme];
   const accentColor = '#f79025';
   const prefix = 'consolante';
@@ -213,6 +213,16 @@ const ConsolanteScreen = ({ theme, players, pools, results, bracketResults, onUp
   // des byes : la consolante n'est pas forcément pleine (taille = puissance de 2
   // supérieure), un slot vide au 1er tour est un bye qui se propage.
   const { groups, totalRounds, descendants } = window.buildIntegralBracket(seeds, prefix, bracketResults, { byes: true });
+
+  // Ménage des tables : le placement consolante se refait à volonté (« Auto »,
+  // drag & drop), et les ids de match changent avec la taille du bracket. Une
+  // attribution orpheline occuperait une table sans qu'aucune carte ne l'affiche.
+  // Rien au-dessus de cette ligne ne sort du rendu : le hook tourne bien à tous
+  // les rendus, avant les sorties anticipées plus bas.
+  const liveMatchIds = groups.flatMap(g => g.matches.map(m => m.id)).join('|');
+  React.useEffect(() => {
+    onUpdateTables?.(prev => window.pruneTables(prev, prefix, liveMatchIds ? liveMatchIds.split('|') : []));
+  }, [liveMatchIds]);
   const columns = Array.from({ length: totalRounds }, (_, i) => ({
     round: i + 1,
     groups: groups.filter(g => g.round === i + 1).sort((a, b) => a.startPlace - b.startPlace),
@@ -280,9 +290,13 @@ const ConsolanteScreen = ({ theme, players, pools, results, bracketResults, onUp
     const canPlay = match.p1 && match.p2;
     // Exempt (bye structurel, à n'importe quel tour) : le match ne se joue pas, l'autre passe
     const isByeMatch = match.bye1 || match.bye2;
+    // Table attribuée = match en cours : même bleu que le tableau principal
+    // (AppShell.LIVE_MATCH_COLOR) — c'est un état du match, pas une couleur d'écran.
+    const live = tables[match.id] !== undefined;
+    const liveColor = window.LIVE_MATCH_COLOR;
     return (
       <div onClick={() => canPlay && openModal(match.id, match.p1, match.p2)}
-        style={{ background: isByeMatch ? `${t.cardBg}88` : t.cardBg, border: `1.5px solid ${isHighlight ? accentColor : t.tableBorder}`, borderRadius: t.cardRadius, overflow: 'hidden', cursor: canPlay ? 'pointer' : 'default', boxShadow: isHighlight ? `0 0 0 3px ${accentColor}25` : t.cardShadow, minWidth: 170, opacity: isByeMatch ? 0.6 : 1, userSelect: 'none' }}>
+        style={{ background: live ? `${liveColor}1f` : isByeMatch ? `${t.cardBg}88` : t.cardBg, border: `1.5px solid ${isHighlight ? accentColor : live ? `${liveColor}80` : t.tableBorder}`, borderRadius: t.cardRadius, overflow: 'hidden', cursor: canPlay ? 'pointer' : 'default', boxShadow: isHighlight ? `0 0 0 3px ${accentColor}25` : t.cardShadow, minWidth: 170, opacity: isByeMatch ? 0.6 : 1, userSelect: 'none' }}>
         {(isHighlight || r || customLabel) && (
           <div style={{ padding: '4px 10px', background: isHighlight ? accentColor : t.tableHeaderBg, borderBottom: `1px solid ${t.tableBorder}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             {(isHighlight || customLabel) && <span style={{ fontSize: 10, fontWeight: 700, color: isHighlight ? '#fff' : t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px' }}>{isHighlight ? 'Finale cons.' : customLabel}</span>}
@@ -291,11 +305,18 @@ const ConsolanteScreen = ({ theme, players, pools, results, bracketResults, onUp
           </div>
         )}
         <PlayerRow player={match.p1} isWinner={winner === 1} sc={r?.score1} isBye={match.bye1} gold={isHighlight} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px' }}>
-          <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
-          <span style={{ fontSize: 9, fontWeight: 700, color: t.textSecondary, opacity: 0.4, letterSpacing: '.5px' }}>VS</span>
-          <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
-        </div>
+        {/* Filet + case de table : toute la ligne disparaît dès que le score est
+            saisi. Le match est terminé, il n'occupe plus de table et ses deux
+            lignes de joueurs se lisent avec leurs scores. */}
+        {!r && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px' }}>
+            {live && <window.LiveMatchBadge />}
+            <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
+            <window.TableSelect t={t} tables={tables} matchId={match.id}
+              active={!!canPlay && !r && !isByeMatch} onUpdateTables={onUpdateTables} />
+            <div style={{ flex: 1, height: 1, background: t.tableBorder }}></div>
+          </div>
+        )}
         <PlayerRow player={match.p2} isWinner={winner === 2} sc={r?.score2} isBye={match.bye2} gold={isHighlight} />
       </div>
     );

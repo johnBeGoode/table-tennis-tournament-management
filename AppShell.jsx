@@ -977,4 +977,111 @@ const parsePlayersCsv = (text) => {
   return { players, ignored, error: null };
 };
 
-Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, poolCompare, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, assignBracketSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking, parsePlayersCsv });
+// ─── Attribution des tables ─────────────────────────────────────────────────
+// TABLE_COUNT tables numérotées de 1 à TABLE_COUNT, **partagées par le tableau
+// principal ET la consolante** : ce sont les mêmes tables physiques, une table
+// occupée d'un côté ne doit pas être proposée de l'autre. D'où un état unique
+// dans `App` (clé `ertt-tables`, `{ [matchId]: table }`), descendu aux deux
+// écrans — les ids de match portent leur préfixe (`principal-…`, `consolante-…`),
+// ils ne peuvent pas se télescoper.
+// Une table se libère **toute seule dès qu'un score est saisi** : le match est
+// terminé, il rend sa table (effet de purge dans `App`). Il n'y a donc jamais à
+// « rendre » une table à la main.
+const TABLE_COUNT = 16;
+
+// Bleu « match en cours » : attribuer une table, c'est dire que le match est lancé
+// (ou sur le point de l'être). La carte prend ce bleu en fond léger et la case de
+// table la même couleur — un seul signal, lu d'un coup d'œil. C'est un **état du
+// match**, pas une couleur d'écran : il est identique dans les deux tableaux, là où
+// le vert du principal et l'orange de la consolante restent les accents d'écran.
+const LIVE_MATCH_COLOR = '#3b9ae1';
+
+// Numéros proposés dans la liste d'un match : ceux que personne n'occupe, plus
+// celui du match lui-même — sans quoi sa propre table disparaîtrait de sa liste
+// et le `<select>` afficherait une valeur absente de ses options.
+const availableTables = (tables, matchId) => {
+  const taken = new Set(Object.entries(tables || {})
+    .filter(([id]) => id !== matchId)
+    .map(([, n]) => n));
+  return Array.from({ length: TABLE_COUNT }, (_, i) => i + 1).filter(n => !taken.has(n));
+};
+
+// Attributions orphelines : le tableau a changé de forme (poules retouchées,
+// placement consolante refait) et des ids de match n'existent plus. Sans ce
+// ménage, leur table resterait occupée par un match qui ne s'affiche nulle part.
+// Chaque écran ne nettoie **que son propre préfixe** : il ne connaît pas les
+// matchs de l'autre tableau. Renvoie `tables` inchangé s'il n'y a rien à jeter,
+// pour que le `setState` de l'appelant ne provoque pas de rendu.
+const pruneTables = (tables, prefix, validIds) => {
+  const valid = validIds instanceof Set ? validIds : new Set(validIds);
+  const stale = Object.keys(tables || {}).filter(id => id.startsWith(`${prefix}-`) && !valid.has(id));
+  if (stale.length === 0) return tables;
+  const next = { ...tables };
+  stale.forEach(id => { delete next[id]; });
+  return next;
+};
+
+// Badge « en cours », posé à gauche du filet séparateur, en face de la case de
+// table. Il vit **dans le flux**, dans la ligne qui existe déjà : sa hauteur
+// (fontSize 8 + 1px de padding, ~13px) reste sous celle de la case (18px), donc
+// la carte ne change pas de taille — c'était la contrainte. Pas d'en-tête ajouté
+// (un match en cours n'en a pas toujours un) ni de badge en position absolue
+// (il passerait sur les noms longs).
+const LiveMatchBadge = () => (
+  <span style={{
+    fontSize: 8, fontWeight: 700, letterSpacing: '.4px', textTransform: 'uppercase',
+    color: LIVE_MATCH_COLOR, background: `${LIVE_MATCH_COLOR}1f`,
+    border: `1px solid ${LIVE_MATCH_COLOR}55`, borderRadius: 4,
+    padding: '1px 5px', whiteSpace: 'nowrap', flexShrink: 0, lineHeight: 1.4,
+  }}>En cours</span>
+);
+
+// La case entre les deux joueurs d'une carte de match : la liste des tables
+// encore libres. **Source unique**, rendue par le tableau principal comme par la
+// consolante — les deux doivent se comporter à l'identique.
+// `active` (match jouable et sans résultat) : la liste des tables libres. Sinon
+// (slot vide, exempté, match d'un tour à venir) : une case vide de mêmes
+// dimensions, pour garder les cartes en attente alignées.
+// Le cas « score saisi » ne passe pas par ici : les écrans retirent alors toute
+// la ligne, filet compris — le match est terminé, il n'a plus de table.
+const TableSelect = ({ t, tables, matchId, active, onUpdateTables }) => {
+  const box = { width: 38, height: 18, borderRadius: 4, flexShrink: 0 };
+  if (!active) return <div style={{ ...box, border: `1px solid ${t.tableBorder}`, background: t.pageBg }}></div>;
+  const value = tables?.[matchId] ?? '';
+  const assigned = value !== '';
+  return (
+    <select
+      value={value}
+      title={assigned ? `Table ${value} — sera libérée à la saisie du score` : 'Attribuer une table'}
+      // Toute la carte ouvre la saisie du score : sans ce stopPropagation, dérouler
+      // la liste ouvrirait la modale par-dessus.
+      onClick={e => e.stopPropagation()}
+      onChange={e => {
+        e.stopPropagation();
+        const n = parseInt(e.target.value, 10);
+        onUpdateTables(prev => {
+          const next = { ...prev };
+          if (Number.isFinite(n)) next[matchId] = n; else delete next[matchId];
+          return next;
+        });
+      }}
+      style={{
+        ...box,
+        appearance: 'none', WebkitAppearance: 'none',
+        border: `1px solid ${assigned ? LIVE_MATCH_COLOR : t.tableBorder}`,
+        background: assigned ? `${LIVE_MATCH_COLOR}18` : t.pageBg,
+        color: assigned ? LIVE_MATCH_COLOR : t.textSecondary,
+        fontSize: 11, fontWeight: 700, fontFamily: 'inherit',
+        textAlign: 'center', textAlignLast: 'center',
+        padding: 0, cursor: 'pointer', outline: 'none',
+      }}>
+      {/* Entrée vide (et non « — ») : la case doit rester vide tant qu'aucune table
+          n'est attribuée. Elle sert aussi à libérer une table à la main, avant que
+          le score ne le fasse tout seul. */}
+      <option value=""></option>
+      {availableTables(tables, matchId).map(n => <option key={n} value={n}>{n}</option>)}
+    </select>
+  );
+};
+
+Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, poolCompare, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, assignBracketSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking, parsePlayersCsv, TABLE_COUNT, LIVE_MATCH_COLOR, availableTables, pruneTables, TableSelect, LiveMatchBadge });

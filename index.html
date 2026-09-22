@@ -20,13 +20,13 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=36"></script>
+<script type="text/babel" src="AppShell.jsx?v=42"></script>
 <script type="text/babel" src="PoolsScreen.jsx?v=22"></script>
 <script type="text/babel" src="BracketsScreen.jsx?v=21"></script>
 <script type="text/babel" src="ResultsScreen.jsx?v=15"></script>
-<script type="text/babel" src="KnockoutScreen.jsx?v=1"></script>
+<script type="text/babel" src="KnockoutScreen.jsx?v=7"></script>
 <script type="text/babel" src="QualificationScreen.jsx?v=4"></script>
-<script type="text/babel" src="ConsolanteScreen.jsx?v=22"></script>
+<script type="text/babel" src="ConsolanteScreen.jsx?v=28"></script>
 
 <script type="text/babel">
 const DEFAULT_SCREEN = /*EDITMODE-BEGIN*/"consolante"/*EDITMODE-END*/;
@@ -134,6 +134,9 @@ const App = () => {
     try { localStorage.removeItem('ertt-barrage-results'); } catch {}
   }, []);
   const [setsToWin, setSetsToWin] = React.useState(() => loadState('ertt-sets-to-win', 3));
+  // Tables attribuées aux matchs en cours, `{ [matchId]: numéro }` — un seul jeu de
+  // tables pour le tableau principal et la consolante (AppShell : TABLE_COUNT).
+  const [tables, setTables] = React.useState(() => loadState('ertt-tables', {}));
   // Verrou des poules : posé par la répartition auto, levé uniquement par
   // « Déverrouiller » (PoolsScreen, confirmé), « Réinitialiser » ou « Joueurs de test ».
   const [poolsLocked, setPoolsLocked] = React.useState(() => loadState('ertt-pools-locked', false));
@@ -145,6 +148,7 @@ const App = () => {
   React.useEffect(() => { saveState('ertt-bracket-results', bracketResults); }, [bracketResults]);
   React.useEffect(() => { saveState('ertt-sets-to-win', setsToWin); }, [setsToWin]);
   React.useEffect(() => { saveState('ertt-pools-locked', poolsLocked); }, [poolsLocked]);
+  React.useEffect(() => { saveState('ertt-tables', tables); }, [tables]);
 
   // Purge des résultats orphelins : quand la composition des poules change
   // (joueur retiré, poule supprimée…), les résultats des paires qui n'existent
@@ -166,6 +170,19 @@ const App = () => {
     });
   }, [pools]);
 
+  // Une table se libère dès que le match a un score : le match est terminé, il rend
+  // sa table. Piloté ici plutôt que dans les écrans pour couvrir d'un coup toutes les
+  // façons d'enregistrer un résultat (saisie, « Générer les scores », les deux tableaux).
+  React.useEffect(() => {
+    setTables(prev => {
+      const done = Object.keys(prev).filter(id => bracketResults[id]);
+      if (done.length === 0) return prev;
+      const next = { ...prev };
+      done.forEach(id => { delete next[id]; });
+      return next;
+    });
+  }, [bracketResults]);
+
   const handleScreen = (v) => setScreen(v);
 
   const resetAll = () => {
@@ -174,6 +191,7 @@ const App = () => {
     setResults({});
     setBracketResults({});
     setPoolsLocked(false);
+    setTables({});
     // Écrite hors de l'état d'App par ConsolanteScreen : à purger à la main
     window.clearConsolanteSeeds();
   };
@@ -185,6 +203,7 @@ const App = () => {
     setResults({});
     setBracketResults({});
     setPoolsLocked(false);
+    setTables({});
     window.clearConsolanteSeeds();
     setScreen('poules');
   };
@@ -194,8 +213,8 @@ const App = () => {
     brackets:   <BracketsScreen theme={theme} players={players} pools={pools} results={results} bracketResults={bracketResults} />,
     resultats:  <ResultsScreen  theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateResults={setResults} testMode={testMode} />,
     qualification: <QualificationScreen theme={theme} players={players} pools={pools} results={results} />,
-    principal:  <KnockoutScreen theme={theme} players={players} pools={pools} results={results} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} testMode={testMode} />,
-    consolante: <ConsolanteScreen theme={theme} players={players} pools={pools} results={results} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} testMode={testMode} />,
+    principal:  <KnockoutScreen theme={theme} players={players} pools={pools} results={results} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} tables={tables} onUpdateTables={setTables} testMode={testMode} />,
+    consolante: <ConsolanteScreen theme={theme} players={players} pools={pools} results={results} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} tables={tables} onUpdateTables={setTables} testMode={testMode} />,
   };
 
   return (
