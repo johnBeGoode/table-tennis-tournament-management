@@ -276,17 +276,23 @@ const poolMatchKey = (poolId, idA, idB) => {
   return `pool-${poolId}-${lo}-${hi}`;
 };
 
-// Classement d'une poule — source unique pour tous les écrans.
-// Champs : v/d (victoires/défaites), sf/sa (sets pour/contre), pf/pa (points pour/contre).
-const poolStandings = (pool, players, results) => {
-  const stats = pool.playerIds.map(id => {
+// Points-rencontres d'un joueur : 2 par victoire, 1 par défaite. Seul endroit qui les calcule :
+// le forfait / l'abandon (0 point) s'y branchera quand les résultats sauront le porter.
+const matchPoints = (s) => 2 * s.v + s.d;
+
+// Statistiques des joueurs `ids` d'une poule, sur les seuls matchs dont LES DEUX joueurs sont
+// dans `ids` : toute la poule (ids = pool.playerIds) ou le mini-classement d'un groupe d'ex æquo.
+// Champs : v/d (victoires/défaites), sf/sa (sets pour/contre), pf/pa (points pour/contre),
+// pts (points-rencontres).
+const poolStats = (pool, players, results, ids) => {
+  const stats = ids.map(id => {
     const name = players.find(p => p.id === id)?.name || '?';
     return { id, name, v: 0, d: 0, sf: 0, sa: 0, pf: 0, pa: 0 };
   });
-  for (let i = 0; i < pool.playerIds.length; i++) {
-    for (let j = i + 1; j < pool.playerIds.length; j++) {
-      const lo = Math.min(pool.playerIds[i], pool.playerIds[j]);
-      const hi = Math.max(pool.playerIds[i], pool.playerIds[j]);
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const lo = Math.min(ids[i], ids[j]);
+      const hi = Math.max(ids[i], ids[j]);
       const r = results[poolMatchKey(pool.id, lo, hi)];
       if (!r) continue;
       let w1 = 0, w2 = 0;
@@ -301,9 +307,68 @@ const poolStandings = (pool, players, results) => {
       si.sf += w1; si.sa += w2; sj.sf += w2; sj.sa += w1;
     }
   }
-  // Départage à égalité : comparateur intra-poule (différences de manches puis de points),
-  // et non crossPoolCompare, dont les quotients sont réservés à l'inter-poules.
-  return stats.sort(poolCompare);
+  stats.forEach(s => { s.pts = matchPoints(s); });
+  return stats;
+};
+
+// Vainqueur du match entre deux joueurs d'une poule, ou null s'il n'est pas encore joué.
+const poolMatchWinner = (pool, results, idA, idB) => {
+  const r = results[poolMatchKey(pool.id, idA, idB)];
+  if (!r) return null;
+  const lo = Math.min(idA, idB), hi = Math.max(idA, idB);
+  let w1 = 0, w2 = 0;
+  (r.sets || []).forEach(([s1, s2]) => { s1 > s2 ? w1++ : w2++; });
+  return w1 > w2 ? lo : hi;
+};
+
+// Quotient tolérant : pas de perte → Infinity (s'il y a eu un gain), sinon 0.
+const ratio = (num, den) => den > 0 ? num / den : (num > 0 ? Infinity : 0);
+// Tri décroissant sûr avec Infinity (Infinity − Infinity donnerait NaN).
+const descending = (x, y) => x === y ? 0 : (y > x ? 1 : -1);
+
+// Classement d'une poule — source unique pour tous les écrans.
+// (1) Total des points-rencontres, décroissant.
+// (2) Deux joueurs à égalité : le vainqueur de leur match passe devant.
+// (3) Trois joueurs ou plus à égalité : mini-classement sur les SEULS matchs qui les ont opposés
+//     entre eux — points-rencontres, puis quotient de manches, puis quotient de points. Le tri
+//     lexicographique fait le travail : un critère qui ne départage qu'une partie du groupe laisse
+//     les autres au critère suivant, toujours calculé sur les matchs du groupe DE DÉPART — on ne
+//     revient jamais à la confrontation directe, même quand il ne reste que deux ex æquo.
+// Égalité persistante : tirage au sort, hors scope — l'ordre de la poule est gardé, `tied` le signale.
+// Chaque entrée porte les statistiques GLOBALES de la poule (celles qu'on affiche) et `tied`.
+const poolStandings = (pool, players, results) => {
+  const stats = poolStats(pool, players, results, pool.playerIds);
+  stats.forEach(s => { s.tied = false; });
+  stats.sort((a, b) => b.pts - a.pts); // tri stable : l'ordre de la poule départage l'égalité complète
+
+  const ranked = [];
+  for (let i = 0; i < stats.length; ) {
+    let j = i;
+    while (j < stats.length && stats[j].pts === stats[i].pts) j++;
+    const group = stats.slice(i, j);
+    i = j;
+
+    if (group.length === 2) {
+      const winner = poolMatchWinner(pool, results, group[0].id, group[1].id);
+      if (winner === null) group.forEach(s => { s.tied = true; });
+      else if (winner === group[1].id) group.reverse();
+    } else if (group.length > 2) {
+      const mini = {};
+      poolStats(pool, players, results, group.map(s => s.id)).forEach(m => { mini[m.id] = m; });
+      const cmp = (a, b) => {
+        const x = mini[a.id], y = mini[b.id];
+        return descending(x.pts, y.pts)
+          || descending(ratio(x.sf, x.sa), ratio(y.sf, y.sa))
+          || descending(ratio(x.pf, x.pa), ratio(y.pf, y.pa));
+      };
+      group.sort(cmp);
+      for (let k = 0; k < group.length - 1; k++) {
+        if (cmp(group[k], group[k + 1]) === 0) { group[k].tied = true; group[k + 1].tied = true; }
+      }
+    }
+    ranked.push(...group);
+  }
+  return ranked;
 };
 
 // Comparateur transversal inter-poules — Art. II.109 du règlement FFTT.
@@ -312,26 +377,12 @@ const poolStandings = (pool, players, results) => {
 // un joueur ayant disputé plus de matchs est mécaniquement avantagé. Attendu : {v, d, sf, sa, pf, pa}.
 // Ordre des critères : (1) quotient points-rencontre (2 pts/victoire, 1 pt/défaite jouée) / rencontres jouées,
 // (2) quotient manches gagnées/perdues, (3) quotient points-jeu gagnés/perdus.
-const ratio = (num, den) => den > 0 ? num / den : (num > 0 ? Infinity : 0);
-// 1er critère commun aux deux comparateurs : quotient points-rencontre / rencontres jouées.
+// Ne sert qu'à comparer des joueurs de poules différentes (choix des meilleurs 3es) — le classement
+// À L'INTÉRIEUR d'une poule, c'est poolStandings.
 const matchPointsCompare = (a, b) => {
   const prA = ratio(2 * a.v + a.d, a.v + a.d);
   const prB = ratio(2 * b.v + b.d, b.v + b.d);
   return prB - prA;
-};
-
-// Comparateur intra-poule — départage de joueurs d'une même poule.
-// Même 1er critère que l'inter-poules, puis des différences (soustractions) et non des quotients :
-// (2) manches gagnées − manches perdues, (3) points-jeu marqués − points-jeu encaissés.
-// Attendu : {v, d, sf, sa, pf, pa}.
-const poolCompare = (a, b) => {
-  const pr = matchPointsCompare(a, b);
-  if (pr !== 0) return pr;
-  const setsDiff = (b.sf - b.sa) - (a.sf - a.sa);
-  if (setsDiff !== 0) return setsDiff;
-  const ptsDiff = (b.pf - b.pa) - (a.pf - a.pa);
-  if (ptsDiff !== 0) return ptsDiff;
-  return 0; // égalité persistante — départage par tirage au sort (hors scope du tri auto)
 };
 
 const crossPoolCompare = (a, b) => {
@@ -1084,4 +1135,4 @@ const TableSelect = ({ t, tables, matchId, active, onUpdateTables }) => {
   );
 };
 
-Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, poolCompare, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, assignBracketSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking, parsePlayersCsv, TABLE_COUNT, LIVE_MATCH_COLOR, availableTables, pruneTables, TableSelect, LiveMatchBadge });
+Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, assignBracketSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking, parsePlayersCsv, TABLE_COUNT, LIVE_MATCH_COLOR, availableTables, pruneTables, TableSelect, LiveMatchBadge });

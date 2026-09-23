@@ -51,18 +51,10 @@ const BracketsScreen = ({ theme, players, pools, results, bracketResults }) => {
     ...s, setsFor: s.sf, setsAgainst: s.sa, ptsFor: s.pf, ptsAgainst: s.pa,
   }));
 
-  // Égalités que les 3 critères intra-poule ne départagent pas (poolCompare === 0).
+  // Égalités que la règle de classement ne départage pas (`tied`, cf. AppShell.poolStandings).
   // Le règlement prévoit alors un tirage au sort : l'ordre affiché est arbitraire, on le signale.
   // Les joueurs sans match joué sont ignorés, sinon une poule vierge serait entièrement « ex æquo ».
-  const markTies = (standings) => {
-    const tied = standings.map(() => false);
-    for (let i = 0; i < standings.length - 1; i++) {
-      const a = standings[i], b = standings[i + 1];
-      if (a.v + a.d === 0 || b.v + b.d === 0) continue;
-      if (window.poolCompare(a, b) === 0) { tied[i] = true; tied[i + 1] = true; }
-    }
-    return tied;
-  };
+  const markTies = (standings) => standings.map(s => s.tied && s.v + s.d > 0);
 
   const totalMatches = (pool) => {
     const n = pool.playerIds.length;
@@ -212,7 +204,7 @@ const BracketsScreen = ({ theme, players, pools, results, bracketResults }) => {
 
     // Composition et numérotation des TS : source unique (AppShell.buildPrincipalSeeds) —
     // ordre des poules dans tous les modes (1ers, 2es, puis meilleurs 3es), jamais au mérite.
-    // On ne fait ici que rhabiller chaque TS avec ses stats de poule (poule · rang, V, D).
+    // On ne fait ici que rhabiller chaque TS avec sa sortie de poule (poule · rang).
     const { struct, seedList } = window.buildPrincipalSeeds({ pools, players, results });
     const statsById = {};
     allStats.forEach(s => { statsById[s.id] = s; });
@@ -253,18 +245,16 @@ const BracketsScreen = ({ theme, players, pools, results, bracketResults }) => {
           </div>
         </div>
 
-        {/* Tableau classement — largeur plafonnée : avec 5 colonnes, un tableau
-            pleine largeur diluerait les colonnes en colonnes de vide. */}
-        <div style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, overflowX: 'auto', maxWidth: 540 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        {/* Tableau classement — ajusté à son contenu : avec 3 colonnes, un tableau
+            plus large creuserait du vide entre le joueur et sa poule. */}
+        <div style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, overflowX: 'auto', width: 'fit-content', maxWidth: '100%' }}>
+          <table style={{ borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: t.tableHeaderBg }}>
                 {[
                   { l: 'N°',     a: 'left',   w: 64 },
                   { l: 'Joueur', a: 'left'          },
-                  { l: 'Poule',  a: 'left',   w: 116 },
-                  { l: 'V',      a: 'center', w: 48 },
-                  { l: 'D',      a: 'center', w: 48 },
+                  { l: 'Poule',  a: 'left'          },
                 ].map((h, i) => (
                   <th key={i} style={{ width: h.w, padding: '9px 12px', textAlign: h.a, fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: `1px solid ${t.tableBorder}`, whiteSpace: 'nowrap' }}>
                     {h.l}
@@ -309,14 +299,12 @@ const BracketsScreen = ({ theme, players, pools, results, bracketResults }) => {
                           {s.poolName} · {s.poolRank}<sup style={{ fontSize: 8 }}>{s.poolRank === 1 ? 'er' : 'e'}</sup>
                         </span>
                       </td>
-                      <td style={{ padding: '9px 12px', textAlign: 'center', fontSize: 14, fontWeight: 800, color: '#20bf6b' }}>{s.v}</td>
-                      <td style={{ padding: '9px 12px', textAlign: 'center', fontSize: 14, color: '#f96b6b', fontWeight: 600 }}>{s.d}</td>
                     </tr>
                 );
               })}
               {!hasResults && (
                 <tr>
-                  <td colSpan={5} style={{ padding: '40px 20px', textAlign: 'center', color: t.textSecondary, fontSize: 13 }}>
+                  <td colSpan={3} style={{ padding: '40px 20px', textAlign: 'center', color: t.textSecondary, fontSize: 13 }}>
                     <i className="fas fa-table-tennis-paddle-ball" style={{ fontSize: 28, display: 'block', marginBottom: 10, opacity: .3 }}></i>
                     Aucun match joué — saisissez des résultats pour voir le classement
                   </td>
@@ -360,8 +348,8 @@ const BracketsScreen = ({ theme, players, pools, results, bracketResults }) => {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['Rang', 'Joueur', 'V', 'D', 'Sets', 'Pts'].map((h, i) => (
-                    <th key={i} style={{ padding: '9px 16px', textAlign: i > 1 ? 'center' : 'left', fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: `1px solid ${t.tableBorder}` }}>{h}</th>
+                  {['Rang', 'Joueur', 'Pts', 'V', 'D', 'Sets', 'Points'].map((h, i) => (
+                    <th key={i} title={h === 'Pts' ? 'Points-rencontres' : undefined} style={{ padding: '9px 16px', textAlign: i > 1 ? 'center' : 'left', fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: `1px solid ${t.tableBorder}` }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -374,12 +362,13 @@ const BracketsScreen = ({ theme, players, pools, results, bracketResults }) => {
                     <td style={{ padding: '11px 16px', fontSize: 14, fontWeight: 600, color: t.textPrimary }}>
                       {s.name}
                       {tied[idx] && (
-                        <span title="Égalité sur les 3 critères (quotients rencontres, manches, points) — départage par tirage au sort"
+                        <span title="Égalité non départagée (confrontation directe, ou points-rencontres puis quotients de manches et de points entre ex æquo) — tirage au sort requis"
                           style={{ marginLeft: 8, background: '#fb8c041a', color: '#fb8c04', borderRadius: t.tagRadius, padding: '2px 7px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>
                           <i className="fas fa-equals" style={{ marginRight: 4, fontSize: 9 }}></i>ex æquo
                         </span>
                       )}
                     </td>
+                    <td style={{ padding: '11px 16px', textAlign: 'center', fontSize: 14, fontWeight: 800, color: t.textPrimary }}>{s.pts}</td>
                     <td style={{ padding: '11px 16px', textAlign: 'center', fontSize: 14, fontWeight: 700, color: '#20bf6b' }}>{s.v}</td>
                     <td style={{ padding: '11px 16px', textAlign: 'center', fontSize: 14, color: '#f96b6b' }}>{s.d}</td>
                     <td style={{ padding: '11px 16px', textAlign: 'center', fontSize: 13, color: t.textSecondary, fontWeight: 500, whiteSpace: 'nowrap' }}>
@@ -391,7 +380,7 @@ const BracketsScreen = ({ theme, players, pools, results, bracketResults }) => {
                   </tr>
                 ))}
                 {standings.length === 0 && (
-                  <tr><td colSpan={6} style={{ padding: '20px', textAlign: 'center', color: t.textSecondary, fontSize: 13 }}>Aucun joueur dans cette poule</td></tr>
+                  <tr><td colSpan={7} style={{ padding: '20px', textAlign: 'center', color: t.textSecondary, fontSize: 13 }}>Aucun joueur dans cette poule</td></tr>
                 )}
               </tbody>
             </table>
@@ -399,7 +388,7 @@ const BracketsScreen = ({ theme, players, pools, results, bracketResults }) => {
             {hasTie && (
               <div style={{ padding: '9px 16px', borderTop: `1px solid ${t.tableBorder}`, background: t.tableHeaderBg, fontSize: 11, color: t.textSecondary, display: 'flex', alignItems: 'center', gap: 7, lineHeight: 1.4 }}>
                 <i className="fas fa-triangle-exclamation" style={{ color: '#fb8c04' }}></i>
-                Égalité non départagée par les 3 quotients — tirage au sort requis
+                Égalité non départagée (confrontation directe, ou points-rencontres puis quotients de manches et de points entre ex æquo) — tirage au sort requis
               </div>
             )}
           </div>
