@@ -9,66 +9,16 @@ const ConsolanteScreen = ({ players, pools, results, bracketResults, onUpdateBra
   // ── Calcul des joueurs éligibles consolante ──────────────────────────────
   const nextPow2 = n => { let b = 1; while (b < n) b *= 2; return b; };
 
-  const poolStandings = (pool) => window.poolStandings(pool, players, results);
-
-  // Les 3es retenus dans le tableau principal (mode 'thirds' : les meilleurs 3es
-  // complètent le tableau) ne sont pas éligibles — source unique : AppShell.buildPrincipalSeeds.
-  const { thirds: principalThirds } = window.buildPrincipalSeeds({ pools, players, results });
-  const principalThirdIds = new Set(principalThirds.map(e => e.player.id));
-  const thirds = pools.map((pool) => {
-    const p = poolStandings(pool)[2] || null;
-    if (!p || principalThirdIds.has(p.id)) return null;
-    return { player: p, poolId: pool.id, label: `3e (${window.poolShortLabel(pool)})` };
-  }).filter(Boolean);
-
-  // Index de la poule dans `pools` — c'est lui qui fait le numéro de TS à
-  // l'intérieur d'une catégorie (cf. « Calcul des têtes de série » plus bas).
-  const poolIndex = {};
-  pools.forEach((pool, i) => { poolIndex[pool.id] = i; });
-
-  const fourths = pools.map((pool) => {
-    const st = poolStandings(pool);
-    const p = st[3] || null;
-    if (!p) return null;
-    return { player: p, poolId: pool.id, label: `4e (${window.poolShortLabel(pool)})` };
-  }).filter(Boolean);
-
-  // Les 1ers et 2es sont toujours qualifiés pour le principal (mode 'byes' : exemptions
-  // de 1er tour, plus d'élimination) : la consolante ne reçoit que les 3es non retenus
-  // dans le principal et les 4es.
-
-  // Aucun match de poule joué → pas de joueurs éligibles
-  const totalPoolMatchesPlayed = Object.keys(results || {}).filter(k => k.startsWith('pool-')).length;
-
-  const eligibleListRaw = totalPoolMatchesPlayed === 0 ? [] : [
-    ...thirds,
-    ...fourths,
-  ];
-
-  // ── Calcul des têtes de série ────────────────────────────────────────────
-  // Même règle que le tableau principal (AppShell.buildPrincipalSeeds) : le RANG dans
-  // la poule puis l'ORDRE DES POULES, jamais les statistiques. Tous les 3es d'abord,
-  // dans l'ordre des poules (3e de A = TS 1, 3e de B = TS 2, …), puis tous les 4es dans
-  // ce même ordre (4e de A = TS a+1). L'étiquette n'est qu'une information.
-  // Trier par performance ici donnait un tableau qui paraissait distribué au hasard.
-  const isFourth = (label) => !!label?.startsWith('4e');
-
-  const eligibleList = [...eligibleListRaw]
-    .sort((a, b) => ((isFourth(a.label) ? 1 : 0) - (isFourth(b.label) ? 1 : 0)) || (poolIndex[a.poolId] - poolIndex[b.poolId]))
-    .map((e, i) => ({ ...e, seed: i + 1 }));
+  // Éligibles (3es non retenus dans le principal, puis 4es) et numérotation des TS
+  // (rang dans la poule puis ordre des poules, jamais les statistiques) — source
+  // unique : AppShell.buildConsolanteEntries, aussi lue par le classement final.
+  const eligibleList = window.buildConsolanteEntries({ pools, players, results });
 
   // ── State ────────────────────────────────────────────────────────────────
   // Taille du bracket calculée dynamiquement selon le nombre de joueurs éligibles
   const bracketSize = nextPow2(eligibleList.length);
-  const [seeds, setSeeds] = React.useState(() => {
-    try {
-      const saved = localStorage.getItem(window.CONSOLANTE_SEEDS_KEY);
-      const parsed = saved ? JSON.parse(saved) : null;
-      // Réinitialise si la taille ne correspond plus
-      if (parsed && parsed.length === bracketSize) return parsed;
-    } catch {}
-    return Array(bracketSize).fill(null);
-  });
+  // Placement enregistré, remis à vide si la taille ne correspond plus
+  const [seeds, setSeeds] = React.useState(() => window.loadConsolanteSeeds(bracketSize));
   const [dragItem, setDragItem] = React.useState(null); // { player, fromSlot: null|number }
   const [dragOver, setDragOver] = React.useState(null);
   const [modal, setModal] = React.useState(null);
@@ -153,7 +103,7 @@ const ConsolanteScreen = ({ players, pools, results, bracketResults, onUpdateBra
     // 4es (TS a+1..a+b), chacun en moitié opposée du 3e de sa poule pour ne le rejouer
     // que le plus tard possible, et les exemptions de 1er tour aux MEILLEURES TS.
     const ordered = [...eligibleList].sort((a, b) => a.seed - b.seed);   // déjà trié, par sûreté
-    const numbered = ordered.map(e => ({ poolId: e.poolId, poolRank: isFourth(e.label) ? 4 : 3, seed: e.seed }));
+    const numbered = ordered.map(e => ({ poolId: e.poolId, poolRank: e.poolRank, seed: e.seed }));
     const slotOf = window.assignBracketSlots(bracketSize, bracketSize - ordered.length, numbered);
     const slotToPlayer = {};
     ordered.forEach(e => { slotToPlayer[slotOf[e.seed]] = e.player; });

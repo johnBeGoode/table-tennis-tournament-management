@@ -506,6 +506,18 @@ const clearConsolanteSeeds = () => {
   try { localStorage.removeItem(CONSOLANTE_SEEDS_KEY); } catch {}
 };
 
+// Placement consolante enregistré, s'il correspond encore à un tableau de `size`
+// places ; sinon un tableau vide. Lu par ConsolanteScreen (état initial) et par
+// BracketsScreen (classement final), qui ne font que relire ce que le premier écrit.
+const loadConsolanteSeeds = (size) => {
+  try {
+    const saved = localStorage.getItem(CONSOLANTE_SEEDS_KEY);
+    const parsed = saved ? JSON.parse(saved) : null;
+    if (Array.isArray(parsed) && parsed.length === size) return parsed;
+  } catch {}
+  return Array(size).fill(null);
+};
+
 // Placement des têtes de série : numéro de TS à chaque position du tableau, 1-indexé.
 // Source unique pour le tableau principal (KnockoutScreen, index.html) et la
 // consolante (ConsolanteScreen) — les deux DOIVENT répartir de la même façon.
@@ -699,6 +711,29 @@ const buildPrincipalSeeds = ({ pools, players, results }) => {
 
   const seeds = buildSeedingPattern(bracketSize).map(seedNum => slotMap[seedNum]?.player || null);
   return { struct, bracketSize, seeds, seedList, thirds };
+};
+
+// --- Consolante : éligibles et numérotation -------------------------------------
+// Source unique de la composition de la consolante, partagée par ConsolanteScreen et
+// BracketsScreen (classement final). Éligibles : les 3es NON retenus dans le tableau
+// principal (mode 'thirds', cf. buildPrincipalSeeds().thirds) et tous les 4es.
+// Numérotation — même règle que le principal : le RANG dans la poule puis l'ORDRE DES
+// POULES, jamais les statistiques. Tous les 3es d'abord (3e de A = TS 1, 3e de B = TS 2,
+// …), puis tous les 4es dans ce même ordre (4e de A = TS a+1).
+// Renvoie [{ player, poolId, poolRank: 3 | 4, label, seed }], vide tant qu'aucun match de
+// poule n'est joué.
+const buildConsolanteEntries = ({ pools, players, results }) => {
+  if (!Object.keys(results || {}).some(k => k.startsWith('pool-'))) return [];
+  const retained = new Set(buildPrincipalSeeds({ pools, players, results }).thirds.map(e => e.player.id));
+  const standings = pools.map(pool => ({ pool, st: poolStandings(pool, players, results) }));
+  const atRank = (rank) => standings
+    .map(({ pool, st }) => {
+      const p = st[rank];
+      if (!p || retained.has(p.id)) return null;
+      return { player: p, poolId: pool.id, poolRank: rank + 1, label: `${rank + 1}e (${poolShortLabel(pool)})` };
+    })
+    .filter(Boolean);
+  return [...atRank(2), ...atRank(3)].map((e, i) => ({ ...e, seed: i + 1 }));
 };
 
 // --- Classement intégral (feuilles FFTT « KO Clt Int ») --------------------------
@@ -1109,4 +1144,4 @@ const TableSelect = ({ t, tables, matchId, active, onUpdateTables }) => {
   );
 };
 
-Object.assign(window, { AppShell, THEME, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, assignBracketSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking, parsePlayersCsv, TABLE_COUNT, LIVE_MATCH_COLOR, availableTables, pruneTables, TableSelect, LiveMatchBadge });
+Object.assign(window, { AppShell, THEME, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, assignBracketSlots, buildPrincipalSeeds, buildConsolanteEntries, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, clearConsolanteSeeds, loadConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking, parsePlayersCsv, TABLE_COUNT, LIVE_MATCH_COLOR, availableTables, pruneTables, TableSelect, LiveMatchBadge });

@@ -111,8 +111,73 @@ const BracketsScreen = ({ players, pools, results, bracketResults }) => {
     // ne sont jamais attribuées, on ne les affiche pas.
     const capacity = struct.mode === 'byes' ? seedList.length : bracketSize;
     const rows = Array.from({ length: capacity }, (_, i) => ({ place: i + 1, player: places[i + 1] || null }));
-    const settled = rows.filter(r => r.player).length;
+
+    // Consolante : même classement intégral que ConsolanteScreen, sur le placement qu'il
+    // a enregistré (drag & drop ou « Auto »). Ses places prolongent celles du principal :
+    // la 1re place de la consolante est la place capacity + 1. Un tableau consolante
+    // n'est jamais plein, les byes laissent le bas vide : on s'arrête aux éligibles.
+    const consEntries = window.buildConsolanteEntries({ pools, players, results });
+    let consSize = 1;
+    while (consSize < consEntries.length) consSize *= 2;
+    // Même ménage que ConsolanteScreen : un joueur placé qui n'est plus éligible sort du tableau.
+    const consIds = new Set(consEntries.map(e => e.player.id));
+    const consSeeds = window.loadConsolanteSeeds(consSize).map(p => (p && consIds.has(p.id) ? p : null));
+    const { places: consPlaces } = window.buildIntegralBracket(consSeeds, 'consolante', bracketResults || {}, { byes: true });
+    const consRows = Array.from({ length: consEntries.length }, (_, i) => ({ place: capacity + i + 1, player: consPlaces[i + 1] || null }));
+
+    const settled = [...rows, ...consRows].filter(r => r.player).length;
     const medal = { 1: '#FFA500', 2: '#9aa5b1', 3: '#c07a3a' };
+    const consAccent = '#f79025';   // couleur de l'écran Consolante
+
+    // Un bloc de classement : en-tête (tableau + plage de places) puis une ligne par place.
+    // `accent` colore les places attribuées ; les médailles ne valent que pour le podium.
+    const renderRanking = ({ title, accent, list, withMedals }) => (
+      <div style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, overflowX: 'auto', width: 420, maxWidth: '100%' }}>
+        <div style={{ padding: '10px 12px', borderBottom: `1px solid ${t.tableBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <span style={{ background: accent, color: '#fff', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>{title}</span>
+          {list.length > 0 && (
+            <span style={{ fontSize: 12, color: t.textSecondary, whiteSpace: 'nowrap' }}>
+              Places {list[0].place} à {list[list.length - 1].place}
+            </span>
+          )}
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: t.tableHeaderBg }}>
+              {[
+                { l: 'Place',  a: 'left', w: 64 },
+                { l: 'Joueur', a: 'left'        },
+              ].map((h, i) => (
+                <th key={i} style={{ width: h.w, padding: '9px 12px', textAlign: h.a, fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: `1px solid ${t.tableBorder}`, whiteSpace: 'nowrap' }}>
+                  {h.l}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {list.map(({ place, player }, idx) => {
+              const badge = withMedals ? medal[place] : undefined;
+              return (
+                <tr key={place} style={{ borderBottom: idx < list.length - 1 ? `1px solid ${t.tableBorder}` : 'none', background: player && badge ? `${badge}0f` : 'transparent', opacity: player ? 1 : 0.55 }}>
+                  <td style={{ padding: '9px 12px' }}>
+                    <span style={{
+                      width: 26, height: 26, borderRadius: '50%',
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 12, fontWeight: 800,
+                      background: player ? (badge || accent) : t.pageBg,
+                      color: player ? '#fff' : t.textSecondary,
+                    }}>{place}</span>
+                  </td>
+                  <td style={{ padding: '9px 12px', fontSize: 14, fontWeight: 600, color: player ? t.textPrimary : t.textSecondary, whiteSpace: 'nowrap', fontStyle: player ? 'normal' : 'italic' }}>
+                    {player ? player.name : 'À déterminer'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
 
     return (
       <div>
@@ -123,7 +188,7 @@ const BracketsScreen = ({ players, pools, results, bracketResults }) => {
             <i className="fas fa-ranking-star" style={{ color: '#FFA500', fontSize: 18 }}></i>
             <div>
               <div style={{ fontSize: 11, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', fontWeight: 700 }}>Places attribuées</div>
-              <div style={{ fontSize: 18, fontWeight: 900, color: t.textPrimary }}>{settled} <span style={{ fontSize: 13, fontWeight: 500, color: t.textSecondary }}>sur {capacity}</span></div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: t.textPrimary }}>{settled} <span style={{ fontSize: 13, fontWeight: 500, color: t.textSecondary }}>sur {capacity + consRows.length}</span></div>
             </div>
           </div>
           <div style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -137,42 +202,9 @@ const BracketsScreen = ({ players, pools, results, bracketResults }) => {
           </div>
         </div>
 
-        <div style={{ background: t.cardBg, borderRadius: t.cardRadius, border: `1px solid ${t.tableBorder}`, overflowX: 'auto', maxWidth: 420 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: t.tableHeaderBg }}>
-                {[
-                  { l: 'Place',  a: 'left', w: 64 },
-                  { l: 'Joueur', a: 'left'        },
-                ].map((h, i) => (
-                  <th key={i} style={{ width: h.w, padding: '9px 12px', textAlign: h.a, fontSize: 11, fontWeight: 700, color: t.textSecondary, textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: `1px solid ${t.tableBorder}`, whiteSpace: 'nowrap' }}>
-                    {h.l}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ place, player }, idx) => {
-                const badge = medal[place];
-                return (
-                  <tr key={place} style={{ borderBottom: idx < rows.length - 1 ? `1px solid ${t.tableBorder}` : 'none', background: player && badge ? `${badge}0f` : 'transparent', opacity: player ? 1 : 0.55 }}>
-                    <td style={{ padding: '9px 12px' }}>
-                      <span style={{
-                        width: 26, height: 26, borderRadius: '50%',
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 12, fontWeight: 800,
-                        background: player ? (badge || t.primary) : t.pageBg,
-                        color: player ? '#fff' : t.textSecondary,
-                      }}>{place}</span>
-                    </td>
-                    <td style={{ padding: '9px 12px', fontSize: 14, fontWeight: 600, color: player ? t.textPrimary : t.textSecondary, whiteSpace: 'nowrap', fontStyle: player ? 'normal' : 'italic' }}>
-                      {player ? player.name : 'À déterminer'}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {renderRanking({ title: 'Tableau principal', accent: t.primary, list: rows, withMedals: true })}
+          {consRows.length > 0 && renderRanking({ title: 'Consolante', accent: consAccent, list: consRows, withMedals: false })}
         </div>
       </div>
     );
