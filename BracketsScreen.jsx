@@ -1,8 +1,8 @@
 // BracketsScreen — Standings des poules et classements du tableau (lecture seule, calculé depuis résultats)
-// Reçoit: theme, players, pools, results, bracketResults
+// Reçoit : players, pools, results, bracketResults
 
-const BracketsScreen = ({ theme, players, pools, results, bracketResults }) => {
-  const t = window.THEMES[theme];
+const BracketsScreen = ({ players, pools, results, bracketResults }) => {
+  const t = window.THEME;
   // Sous-onglet mémorisé : on retrouve Poules / Tab principal / Classement final
   // tel qu'on l'a laissé en revenant sur l'écran (ou après rechargement).
   const [subTab, setSubTab] = React.useState(() => window.loadState('ertt-brackets-tab', 'poules'));

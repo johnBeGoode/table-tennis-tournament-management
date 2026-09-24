@@ -6,8 +6,8 @@
 //              Art. II.109 FFTT) — l'écran montre le classement de tous les 3es ;
 //   'byes'   : pas assez de 3es, certaines TS sont exemptées de 1er tour — l'écran les liste.
 
-const QualificationScreen = ({ theme, players, pools, results }) => {
-  const t = window.THEMES[theme];
+const QualificationScreen = ({ players, pools, results }) => {
+  const t = window.THEME;
   const accentColor = '#f79025';
 
   // Structure, numérotation et 3es retenus — source unique (AppShell.buildPrincipalSeeds)

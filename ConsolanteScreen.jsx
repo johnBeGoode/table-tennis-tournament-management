@@ -1,8 +1,8 @@
 // ConsolanteScreen — Tableau consolante avec placement manuel par drag & drop,
 // en classement intégral (structure : AppShell.buildIntegralBracket, avec byes)
 
-const ConsolanteScreen = ({ theme, players, pools, results, bracketResults, onUpdateBracketResults, tables = {}, onUpdateTables, testMode }) => {
-  const t = window.THEMES[theme];
+const ConsolanteScreen = ({ players, pools, results, bracketResults, onUpdateBracketResults, tables = {}, onUpdateTables, testMode }) => {
+  const t = window.THEME;
   const accentColor = '#f79025';
   const prefix = 'consolante';
 

@@ -1,33 +1,29 @@
 // AppShell — ERTT Tournament App
 // Shared layout: sidebar + top bar + content area
 
-const THEMES = {
-  classique: {
-    name: 'Classique',
-    sidebarBg: '#ffffff',
-    sidebarBorder: '1px solid #e8eaed',
-    sidebarText: '#444',
-    sidebarActiveText: '#20bf6b',
-    sidebarActiveBg: 'rgba(32,191,107,0.08)',
-    topbarBg: '#ffffff',
-    topbarBorder: '1px solid #e8eaed',
-    pageBg: '#f4f5f7',
-    cardBg: '#ffffff',
-    cardShadow: '0 1px 4px rgba(0,0,0,0.08)',
-    cardRadius: 12,
-    primary: '#20bf6b',
-    primaryDark: '#17a35a',
-    primaryText: '#ffffff',
-    btnRadius: 8,
-    tableBorder: '#e8eaed',
-    tableHeaderBg: '#f8f9fa',
-    inputBorder: '#dde1e7',
-    inputBg: '#ffffff',
-    tagRadius: 6,
-    textPrimary: '#1a1d23',
-    textSecondary: '#6b7280',
-    divider: '#e8eaed',
-  },
+// Palette de l'interface, lue par tous les écrans (styles inline).
+const THEME = {
+  sidebarBg: '#ffffff',
+  sidebarBorder: '1px solid #e8eaed',
+  sidebarText: '#444',
+  sidebarActiveText: '#20bf6b',
+  sidebarActiveBg: 'rgba(32,191,107,0.08)',
+  topbarBg: '#ffffff',
+  topbarBorder: '1px solid #e8eaed',
+  pageBg: '#f4f5f7',
+  cardBg: '#ffffff',
+  cardShadow: '0 1px 4px rgba(0,0,0,0.08)',
+  cardRadius: 12,
+  primary: '#20bf6b',
+  primaryText: '#ffffff',
+  btnRadius: 8,
+  tableBorder: '#e8eaed',
+  tableHeaderBg: '#f8f9fa',
+  inputBorder: '#dde1e7',
+  inputBg: '#ffffff',
+  tagRadius: 6,
+  textPrimary: '#1a1d23',
+  textSecondary: '#6b7280',
 };
 
 const NAV_ITEMS = [
@@ -47,8 +43,8 @@ const NAV_ITEMS = [
 const UNLOCK_CLICKS = 5;
 const UNLOCK_MAX_GAP = 1500;   // ms au-delà desquelles le compteur de clics repart de zéro
 
-const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll, onSeedPlayers, testMode, onToggleTestMode }) => {
-  const t = THEMES[theme];
+const AppShell = ({ screen, onNav, children, onResetAll, onSeedPlayers, testMode, onToggleTestMode }) => {
+  const t = THEME;
   const [confirmReset, setConfirmReset] = React.useState(false);
   const [showSeed, setShowSeed] = React.useState(false);   // modale « joueurs de test »
   const [seedCount, setSeedCount] = React.useState('');
@@ -92,8 +88,6 @@ const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll, 
           <div style={{ fontSize: 15, fontWeight: 900, color: t.primary, letterSpacing: '-0.3px' }}>TENNIS DE TABLE</div>
           <div style={{ fontSize: 11, color: t.sidebarText, marginTop: 2, opacity: 0.7, fontWeight: 500, letterSpacing: '.3px' }}>GESTION DE TOURNOI</div>
         </div>
-
-
 
         {/* Nav */}
         <nav style={{ flex: 1, padding: '8px 10px' }}>
@@ -248,14 +242,12 @@ const AppShell = ({ theme, screen, onNav, children, tournamentName, onResetAll, 
           borderBottom: t.topbarBorder,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
           padding: '0 28px',
           flexShrink: 0,
         }}>
           <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: t.textPrimary }}>
             {NAV_ITEMS.find(n => n.id === screen)?.label}
           </h1>
-          <div></div>
         </header>
 
         {/* Content */}
@@ -1135,4 +1127,4 @@ const TableSelect = ({ t, tables, matchId, active, onUpdateTables }) => {
   );
 };
 
-Object.assign(window, { AppShell, THEMES, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, assignBracketSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking, parsePlayersCsv, TABLE_COUNT, LIVE_MATCH_COLOR, availableTables, pruneTables, TableSelect, LiveMatchBadge });
+Object.assign(window, { AppShell, THEME, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, assignBracketSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking, parsePlayersCsv, TABLE_COUNT, LIVE_MATCH_COLOR, availableTables, pruneTables, TableSelect, LiveMatchBadge });

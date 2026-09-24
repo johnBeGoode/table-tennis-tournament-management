@@ -1,8 +1,8 @@
 // PoolsScreen — Joueurs, format et constitution des poules (répartition auto)
 // Reçoit : players, pools, onUpdatePlayers, onUpdatePools, poolsLocked, onUpdatePoolsLocked
 
-const PoolsScreen = ({ theme, players, pools, results, setsToWin, onUpdateSetsToWin, onUpdatePlayers, onUpdatePools, poolsLocked = false, onUpdatePoolsLocked }) => {
-  const t = window.THEMES[theme];
+const PoolsScreen = ({ players, pools, results, setsToWin, onUpdateSetsToWin, onUpdatePlayers, onUpdatePools, poolsLocked = false, onUpdatePoolsLocked }) => {
+  const t = window.THEME;
   const [newName, setNewName] = React.useState('');
   const [newRanking, setNewRanking] = React.useState('');
   const [addingToPool, setAddingToPool] = React.useState(null); // poolId en cours d'ajout

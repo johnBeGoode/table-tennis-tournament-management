@@ -100,7 +100,7 @@ D'où le suffixe de version dans la clé : **toute modification du placement (`b
 ## Architecture
 
 ### État
-Tout l'état vit dans `App` (`index.html`, vers la ligne 438) en `React.useState`, et descend en props vers l'écran actif. Pas de context, pas de store. Chaque morceau est miroité dans `localStorage` par un `useEffect` :
+Tout l'état vit dans `App` (`index.html`) en `React.useState`, et descend en props vers l'écran actif. Pas de context, pas de store. Chaque morceau est miroité dans `localStorage` par un `useEffect` :
 
 | Clé | Contenu |
 |---|---|
@@ -117,7 +117,7 @@ Tout l'état vit dans `App` (`index.html`, vers la ligne 438) en `React.useState
 | `ertt-brackets-tab` | sous-onglet de Classements (`poules` / `principal` / `final`) — écrit par `BracketsScreen.jsx`, remis à `poules` à chaque chargement de page |
 | `consolante-seeds-v9` | placement manuel de la consolante — écrit **directement** par `ConsolanteScreen.jsx`, pas par `App`. Le suffixe de version est incrémenté dès que le placement change — `buildSeedingPattern` **ou** la numérotation des têtes de série de `ConsolanteScreen` — pour jeter les placements construits avec l'ancienne règle. Clé, clés héritées et purge : `CONSOLANTE_SEEDS_KEY` / `CONSOLANTE_SEEDS_LEGACY_KEYS` / `clearConsolanteSeeds()` dans `AppShell.jsx` |
 
-Il n'existe **pas d'entité Tournoi** : un seul tournoi implicite, dont le nom est codé en dur dans `index.html`.
+Il n'existe **pas d'entité Tournoi** : un seul tournoi implicite, sans nom.
 
 ### Deux formats de résultat, à ne pas confondre
 - **Poules** : `{ sets: [[s1, s2], …] }` — des **points** (11, 13…), pas de champ vainqueur : il est recalculé en comptant les sets.
@@ -161,8 +161,8 @@ Il n'existe **pas d'entité Tournoi** : un seul tournoi implicite, dont le nom e
 
 ## Points connus
 
-- `DEFAULT_SCREEN` (`index.html`) est entouré de marqueurs `/*EDITMODE-BEGIN*/…/*EDITMODE-END*/` manipulés par un outil externe ; sa valeur peut ne pas être `"poules"`.
-- Le style est entièrement en **objets inline**, alimentés par `THEMES` (`AppShell.jsx`). Un seul thème (`classique`) ; la bascule de thème a été retirée. Icônes Font Awesome 6.5, police Roboto, les deux via CDN.
+- `DEFAULT_SCREEN` (`index.html`, `'poules'`) n'est lu qu'en l'absence de `ertt-screen`, donc au tout premier lancement.
+- Le style est entièrement en **objets inline**, alimentés par la palette `THEME` (`AppShell.jsx`, lue par chaque écran via `window.THEME`). Icônes Font Awesome 6.5, police Roboto, les deux via CDN.
 - Pas d'import/export de données : le seul transport, c'est `localStorage`.
 - Après un « Réinitialiser », la clé `consolante-seeds-v9` **réapparaît avec la valeur `[null]`** dès qu'on visite l'écran Consolante : le `useEffect` de persistance réécrit l'état vide (bracket de taille 1). Sans conséquence, mais ne pas y voir un échec de `clearConsolanteSeeds()` — regarder le contenu, pas l'existence de la clé.
 - Le placement du tableau principal et celui de la consolante doivent rester **identiques** : depuis l'extraction d'`assignBracketSlots`, les deux appellent littéralement la même fonction — ne pas réintroduire de placement local dans `ConsolanteScreen`. Sur un tableau de 16, chaque paire du 1er tour fait 17 (témoin : seeds **8–9**) ; sur 32 ce n'est plus vrai (1–28, 5–32), c'est la table qui fait foi. Deux témoins universels : dans un tableau plein, le 1er et le 2e d'une même poule sont dans des moitiés opposées ; dans un tableau à exemptions, les exemptés sont exactement les seeds `1..byeCount`.

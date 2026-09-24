@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-<!-- @dsCard group="UI Kit — Tournament" name="ERTT Tournament App UI Kit" subtitle="App de gestion de tournois — joueurs, brackets, saisie résultats" viewport="1280x700" -->
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
@@ -20,19 +19,16 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=43"></script>
-<script type="text/babel" src="PoolsScreen.jsx?v=22"></script>
-<script type="text/babel" src="BracketsScreen.jsx?v=23"></script>
-<script type="text/babel" src="ResultsScreen.jsx?v=15"></script>
-<script type="text/babel" src="KnockoutScreen.jsx?v=7"></script>
-<script type="text/babel" src="QualificationScreen.jsx?v=4"></script>
-<script type="text/babel" src="ConsolanteScreen.jsx?v=28"></script>
+<script type="text/babel" src="AppShell.jsx?v=44"></script>
+<script type="text/babel" src="PoolsScreen.jsx?v=23"></script>
+<script type="text/babel" src="BracketsScreen.jsx?v=24"></script>
+<script type="text/babel" src="ResultsScreen.jsx?v=17"></script>
+<script type="text/babel" src="KnockoutScreen.jsx?v=8"></script>
+<script type="text/babel" src="QualificationScreen.jsx?v=5"></script>
+<script type="text/babel" src="ConsolanteScreen.jsx?v=29"></script>
 
 <script type="text/babel">
-const DEFAULT_SCREEN = /*EDITMODE-BEGIN*/"consolante"/*EDITMODE-END*/;
-
-// Look unique : Classique (la bascule de thème a été retirée)
-const THEME = 'classique';
+const DEFAULT_SCREEN = 'poules';
 
 // Accès localStorage — helpers partagés (AppShell.jsx), les écrans les utilisent aussi
 const { loadState, saveState } = window;
@@ -43,7 +39,6 @@ const { loadState, saveState } = window;
 window.resetTabPreferences();
 
 const App = () => {
-  const theme = THEME;
   // L'écran « Barrages » est devenu « Informations » (id `qualification`) : un ancien id mémorisé y renvoie.
   const [screen, setScreen] = React.useState(() => {
     const saved = loadState('ertt-screen', DEFAULT_SCREEN);
@@ -183,8 +178,6 @@ const App = () => {
     });
   }, [bracketResults]);
 
-  const handleScreen = (v) => setScreen(v);
-
   const resetAll = () => {
     setPlayers([]);
     setPools([]);
@@ -209,16 +202,16 @@ const App = () => {
   };
 
   const screenMap = {
-    poules:     <PoolsScreen    theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateSetsToWin={setSetsToWin} onUpdatePlayers={setPlayers} onUpdatePools={setPools} poolsLocked={poolsLocked} onUpdatePoolsLocked={setPoolsLocked} />,
-    brackets:   <BracketsScreen theme={theme} players={players} pools={pools} results={results} bracketResults={bracketResults} />,
-    resultats:  <ResultsScreen  theme={theme} players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateResults={setResults} testMode={testMode} />,
-    qualification: <QualificationScreen theme={theme} players={players} pools={pools} results={results} />,
-    principal:  <KnockoutScreen theme={theme} players={players} pools={pools} results={results} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} tables={tables} onUpdateTables={setTables} testMode={testMode} />,
-    consolante: <ConsolanteScreen theme={theme} players={players} pools={pools} results={results} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} tables={tables} onUpdateTables={setTables} testMode={testMode} />,
+    poules:     <PoolsScreen    players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateSetsToWin={setSetsToWin} onUpdatePlayers={setPlayers} onUpdatePools={setPools} poolsLocked={poolsLocked} onUpdatePoolsLocked={setPoolsLocked} />,
+    brackets:   <BracketsScreen players={players} pools={pools} results={results} bracketResults={bracketResults} />,
+    resultats:  <ResultsScreen  players={players} pools={pools} results={results} setsToWin={setsToWin} onUpdateResults={setResults} testMode={testMode} />,
+    qualification: <QualificationScreen players={players} pools={pools} results={results} />,
+    principal:  <KnockoutScreen players={players} pools={pools} results={results} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} tables={tables} onUpdateTables={setTables} testMode={testMode} />,
+    consolante: <ConsolanteScreen players={players} pools={pools} results={results} bracketResults={bracketResults} onUpdateBracketResults={setBracketResults} tables={tables} onUpdateTables={setTables} testMode={testMode} />,
   };
 
   return (
-    <AppShell theme={theme} screen={screen} onNav={handleScreen} tournamentName="Tournoi Amical Printemps 2026" onResetAll={resetAll} onSeedPlayers={seedPlayers}
+    <AppShell screen={screen} onNav={setScreen} onResetAll={resetAll} onSeedPlayers={seedPlayers}
       testMode={testMode} onToggleTestMode={() => setTestMode(v => !v)}>
       {screenMap[screen]}
     </AppShell>

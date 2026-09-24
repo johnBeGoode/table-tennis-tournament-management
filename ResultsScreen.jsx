@@ -1,5 +1,6 @@
 // ResultsScreen — Saisie des résultats par set
-// Format: premier à 3 sets gagnants, 11 pts minimum, 2 pts d'écart
+// Format : 2 ou 3 sets gagnants selon le réglage de l'écran Poules (prop `setsToWin`),
+// 11 pts minimum, 2 pts d'écart, 30 pts maximum par set
 // Validation uniquement au blur (onBlur) pour permettre la saisie de nombres comme 12
 
 const POOL_COLORS = [
@@ -118,8 +119,8 @@ const randomResult = (setsToWin) => {
 
 const emptySet = () => ({ s1: '', s2: '', done: false });
 
-const ResultsScreen = ({ theme, players, pools, results, setsToWin = 3, onUpdateResults, testMode }) => {
-  const t = window.THEMES[theme];
+const ResultsScreen = ({ players, pools, results, setsToWin = 3, onUpdateResults, testMode }) => {
+  const t = window.THEME;
   // Format dynamique : best-of-3 (2 sets gagnants) ou best-of-5 (3 sets gagnants)
   const SETS_TO_WIN = setsToWin;
   const MAX_SETS = setsToWin * 2 - 1;

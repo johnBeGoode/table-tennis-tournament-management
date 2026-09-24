@@ -6,8 +6,8 @@
 // exemptés de 1er tour, mode 'thirds' = meilleurs 3es en complément)
 // Structure des tours et sous-tableaux : AppShell.buildIntegralBracket
 
-const KnockoutScreen = ({ theme, players, pools, results, bracketResults, onUpdateBracketResults, tables = {}, onUpdateTables, testMode }) => {
-  const t = window.THEMES[theme];
+const KnockoutScreen = ({ players, pools, results, bracketResults, onUpdateBracketResults, tables = {}, onUpdateTables, testMode }) => {
+  const t = window.THEME;
   const [modal, setModal] = React.useState(null);
   const [score, setScore] = React.useState({ p1: '', p2: '' });
   const firstInputRef = React.useRef(null);
