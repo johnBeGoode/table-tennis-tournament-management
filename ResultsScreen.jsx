@@ -14,8 +14,6 @@ const POOL_COLORS = [
   { bg: 'rgba(99,102,241,0.1)',   color: '#6366f1' },
 ];
 
-// SETS_TO_WIN / MAX_SETS sont désormais dérivés du prop `setsToWin` (2 ou 3)
-
 // Vérifie si un score de set est valide selon les règles tennis de table
 // Victoire normale : gagnant = 11, perdant ≤ 9
 // Prolongation (égalité à 10-10+) : gagnant = perdant + 2, les deux ≥ 10

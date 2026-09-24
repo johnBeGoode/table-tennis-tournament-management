@@ -67,7 +67,7 @@ const PoolsScreen = ({ players, pools, results, setsToWin, onUpdateSetsToWin, on
     let parsed;
     try {
       parsed = window.parsePlayersCsv(await readCsvFile(file));
-    } catch (err) {
+    } catch {
       setCsvPreview(null);
       setCsvError(`« ${file.name} » n'a pas pu être lu.`);
       return;
@@ -193,8 +193,6 @@ const PoolsScreen = ({ players, pools, results, setsToWin, onUpdateSetsToWin, on
       : p
     ));
   };
-
-  const playerName = (id) => players.find(p => p.id === id)?.name || '?';
 
   const FORMAT_OPTIONS = [
     { val: 2, label: '2 sets gagnants', sub: 'Best of 3' },
@@ -452,7 +450,7 @@ const PoolsScreen = ({ players, pools, results, setsToWin, onUpdateSetsToWin, on
                 </div>
 
                 {/* Players in pool */}
-                {poolPlayers.map((p, i) => (
+                {poolPlayers.map(p => (
                   <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 16px', borderBottom: `1px solid ${t.tableBorder}` }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ width: 26, height: 26, borderRadius: '50%', background: t.primary + '22', color: t.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700 }}>

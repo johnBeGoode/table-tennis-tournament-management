@@ -497,29 +497,13 @@ const resetTabPreferences = () => {
 // Placement manuel de la consolante (drag & drop). Contrairement au reste, cette
 // clé est écrite directement par ConsolanteScreen, pas par App : elle doit donc
 // être purgée explicitement partout où le tournoi repart de zéro.
-// Le suffixe de version est incrémenté dès que le placement change — que ce soit
-// buildSeedingPattern ou la numérotation des têtes de série de la consolante : un
-// placement construit avec l'ancienne règle doit être jeté, pas rechargé.
-// v4 : la catégorie « 2e éliminé » a disparu (mode 'byes' à la place d'eliminate).
-// v5 : nouvelles tables 8, 16 et 32 et placement des 4es en moitié opposée de leur 3e.
-// v6 : numérotation par ordre des poules pour tous les 3es.
-// v7 : plus de barrages — les 3es retenus dans le tableau principal (mode 'thirds')
-//      sortent des éligibles, donc la numérotation des 3es restants change. La taille
-//      du bracket, elle, peut ne pas bouger (7 poules : 14 éligibles → 12, toujours un
-//      tableau de 16), et le useEffect de resynchronisation ne remet à zéro que sur un
-//      changement de taille : sans ce v7, l'ancien placement serait rechargé tel quel.
-// v8 : le repêchage des 3es est restreint au trou de 2 places. De 6 et 11 à 14 poules,
-//      les 3es qui étaient retenus dans le principal reviennent tous en consolante : le
-//      nombre d'éligibles et donc la numérotation changent (6 poules : 8 éligibles → 12).
-// v9 : les exemptions de 1er tour vont aux MEILLEURES TS (assignBracketSlots) — le
-//      placement change dès que le tableau n'est pas plein, sans que sa taille bouge.
+// Le suffixe de version est à incrémenter si la règle de placement change
+// (buildSeedingPattern ou numérotation des têtes de série de la consolante) : un
+// placement construit avec l'ancienne règle serait sinon rechargé tel quel.
 const CONSOLANTE_SEEDS_KEY = 'consolante-seeds-v9';
-const CONSOLANTE_SEEDS_LEGACY_KEYS = ['consolante-seeds', 'consolante-seeds-v2', 'consolante-seeds-v3', 'consolante-seeds-v4', 'consolante-seeds-v5', 'consolante-seeds-v6', 'consolante-seeds-v7', 'consolante-seeds-v8'];
 
 const clearConsolanteSeeds = () => {
-  try {
-    [CONSOLANTE_SEEDS_KEY, ...CONSOLANTE_SEEDS_LEGACY_KEYS].forEach(k => localStorage.removeItem(k));
-  } catch {}
+  try { localStorage.removeItem(CONSOLANTE_SEEDS_KEY); } catch {}
 };
 
 // Placement des têtes de série : numéro de TS à chaque position du tableau, 1-indexé.
@@ -714,8 +698,7 @@ const buildPrincipalSeeds = ({ pools, players, results }) => {
   });
 
   const seeds = buildSeedingPattern(bracketSize).map(seedNum => slotMap[seedNum]?.player || null);
-  const firsts = firstEntries.map(e => e.player), seconds = secondEntries.map(e => e.player);
-  return { struct, bracketSize, seeds, seedList, firsts, seconds, thirds };
+  return { struct, bracketSize, seeds, seedList, thirds };
 };
 
 // --- Classement intégral (feuilles FFTT « KO Clt Int ») --------------------------
@@ -846,8 +829,7 @@ const MAX_TEST_PLAYERS = 128;
 
 // Plancher de classement : un joueur loisir / non classé compte pour 500 points,
 // le plus bas classement FFTT. Personne n'est donc « sans points » — ni à la saisie,
-// ni dans les joueurs de test, ni dans les tournois déjà enregistrés (migration
-// au chargement dans `App`).
+// ni à l'import CSV, ni dans les joueurs de test.
 const MIN_RANKING = 500;
 const normalizeRanking = (value) => {
   const n = typeof value === 'number' ? value : parseInt(value, 10);
@@ -1127,4 +1109,4 @@ const TableSelect = ({ t, tables, matchId, active, onUpdateTables }) => {
   );
 };
 
-Object.assign(window, { AppShell, THEME, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, assignBracketSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, CONSOLANTE_SEEDS_LEGACY_KEYS, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking, parsePlayersCsv, TABLE_COUNT, LIVE_MATCH_COLOR, availableTables, pruneTables, TableSelect, LiveMatchBadge });
+Object.assign(window, { AppShell, THEME, loadState, saveState, resetTabPreferences, poolMatchKey, poolStandings, crossPoolCompare, computeBracketStructure, buildSeedingPattern, patternIndex, meetingRound, firstRoundOpponent, assignPartnerSlots, assignBracketSlots, buildPrincipalSeeds, buildIntegralBracket, placementLabel, CONSOLANTE_SEEDS_KEY, clearConsolanteSeeds, poolShortLabel, randomPlayers, MIN_RANKING, normalizeRanking, parsePlayersCsv, TABLE_COUNT, LIVE_MATCH_COLOR, availableTables, pruneTables, TableSelect, LiveMatchBadge });

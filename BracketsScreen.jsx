@@ -180,7 +180,6 @@ const BracketsScreen = ({ players, pools, results, bracketResults }) => {
 
   if (subTab === 'principal') {
     const totalPlayers = pools.reduce((acc, p) => acc + p.playerIds.length, 0);
-    const n = pools.length;
 
     // Stats par joueur — bâties sur le classement partagé (AppShell.poolStandings)
     const buildStats = () => {

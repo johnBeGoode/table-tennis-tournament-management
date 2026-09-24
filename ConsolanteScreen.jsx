@@ -62,9 +62,6 @@ const ConsolanteScreen = ({ players, pools, results, bracketResults, onUpdateBra
   const bracketSize = nextPow2(eligibleList.length);
   const [seeds, setSeeds] = React.useState(() => {
     try {
-      // Les placements des versions précédentes ont été construits avec un autre
-      // pattern de seeding : on les jette au lieu de les recharger.
-      window.CONSOLANTE_SEEDS_LEGACY_KEYS.forEach(k => localStorage.removeItem(k));
       const saved = localStorage.getItem(window.CONSOLANTE_SEEDS_KEY);
       const parsed = saved ? JSON.parse(saved) : null;
       // Réinitialise si la taille ne correspond plus
@@ -474,7 +471,7 @@ const ConsolanteScreen = ({ players, pools, results, bracketResults, onUpdateBra
               </button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {unplaced.map((entry, i) => (
+              {unplaced.map(entry => (
                 <div key={entry.player.id} draggable
                   onDragStart={e => handleDragStartList(e, entry)}
                   style={{ background: t.cardBg, border: `1.5px solid ${t.tableBorder}`, borderRadius: 8, padding: '8px 12px', cursor: 'grab', userSelect: 'none', display: 'flex', flexDirection: 'column', gap: 2, boxShadow: t.cardShadow }}>

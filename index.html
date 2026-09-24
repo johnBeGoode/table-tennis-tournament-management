@@ -19,13 +19,13 @@
 <body>
 <div id="root"></div>
 
-<script type="text/babel" src="AppShell.jsx?v=44"></script>
-<script type="text/babel" src="PoolsScreen.jsx?v=23"></script>
-<script type="text/babel" src="BracketsScreen.jsx?v=24"></script>
-<script type="text/babel" src="ResultsScreen.jsx?v=17"></script>
+<script type="text/babel" src="AppShell.jsx?v=46"></script>
+<script type="text/babel" src="PoolsScreen.jsx?v=24"></script>
+<script type="text/babel" src="BracketsScreen.jsx?v=25"></script>
+<script type="text/babel" src="ResultsScreen.jsx?v=18"></script>
 <script type="text/babel" src="KnockoutScreen.jsx?v=8"></script>
 <script type="text/babel" src="QualificationScreen.jsx?v=5"></script>
-<script type="text/babel" src="ConsolanteScreen.jsx?v=29"></script>
+<script type="text/babel" src="ConsolanteScreen.jsx?v=31"></script>
 
 <script type="text/babel">
 const DEFAULT_SCREEN = 'poules';
@@ -39,95 +39,19 @@ const { loadState, saveState } = window;
 window.resetTabPreferences();
 
 const App = () => {
-  // L'écran « Barrages » est devenu « Informations » (id `qualification`) : un ancien id mémorisé y renvoie.
-  const [screen, setScreen] = React.useState(() => {
-    const saved = loadState('ertt-screen', DEFAULT_SCREEN);
-    return saved === 'barrage' ? 'qualification' : saved;
-  });
+  const [screen, setScreen] = React.useState(() => loadState('ertt-screen', DEFAULT_SCREEN));
   React.useEffect(() => { saveState('ertt-screen', screen); }, [screen]);
 
   // Mode test : masque/affiche les boutons de données factices (« Joueurs de test »,
   // « Générer les scores »). Jamais persisté — chaque chargement de page repart éteint.
   const [testMode, setTestMode] = React.useState(false);
 
-  // Shared state
-  // Migration : les joueurs sans points (non classés d'avant le plancher) ou sous
-  // 500 sont remontés à 500 — plus personne n'est « sans points ».
-  const [players, setPlayers] = React.useState(() => loadState('ertt-players', [])
-    .map(p => ({ ...p, ranking: window.normalizeRanking(p.ranking) })));
+  // État partagé, rechargé depuis localStorage : un navigateur fermé en plein tournoi
+  // reprend là où il en était.
+  const [players, setPlayers] = React.useState(() => loadState('ertt-players', []));
   const [pools, setPools] = React.useState(() => loadState('ertt-pools', []));
-  const [results, setResults] = React.useState(() => {
-    const raw = loadState('ertt-results', {});
-    // Migration : clés canoniques (petit id de joueur en premier).
-    // Les résultats enregistrés avant la canonicalisation sont réécrits,
-    // en inversant l'orientation des sets si la paire était inversée.
-    const migrated = {};
-    Object.entries(raw).forEach(([k, v]) => {
-      const m = k.match(/^pool-(\d+)-(\d+)-(\d+)$/);
-      if (m && parseInt(m[2]) > parseInt(m[3])) {
-        migrated[`pool-${m[1]}-${m[3]}-${m[2]}`] = { ...v, sets: (v.sets || []).map(([a, b]) => [b, a]) };
-      } else {
-        migrated[k] = v;
-      }
-    });
-    return migrated;
-  });
-  // Migration one-shot des résultats de tableau (clé `ertt-bracket-schema`) :
-  //   2 : le mode 'byes' a remplacé 'eliminate' — purge si le tournoi est en mode 'byes'
-  //       (autre taille de tableau, autre consolante) ;
-  //   3 : nouvelles tables de placement 8/16/32 et 2es placés en moitié opposée de leur
-  //       1er — les ids `principal-r1-N` ne désignent plus les mêmes joueurs, purge
-  //       dans tous les modes (le placement consolante est jeté par sa clé v5).
-  //   4 : plus de barrages, les meilleurs 3es complètent le tableau (mode 'thirds') ;
-  //       la clé `ertt-barrage-results` est supprimée.
-  //   5 : le repêchage des 3es est restreint au trou de 2 places — de 6 et 11 à 14
-  //       poules, le tableau repasse aux exemptions de 1er tour.
-  //   6 : en mode 'byes', les exemptions vont aux meilleures TS — le placement change
-  //       (slots vides = partenaires des slots 1..byeCount), sans que la taille bouge.
-  // Sans purge, buildIntegralBracket propagerait les copies de joueurs des anciens
-  // résultats dans un tableau qui ne les contient plus à ces positions.
-  const BRACKET_SCHEMA = 6;
-  const [bracketResults, setBracketResults] = React.useState(() => {
-    const raw = loadState('ertt-bracket-results', {});
-    const schema = loadState('ertt-bracket-schema', 1);
-    if (schema >= BRACKET_SCHEMA) return raw;
-    // Avant le schéma 3, les tables de placement elles-mêmes ont changé : rien n'est
-    // récupérable, quel que soit le régime.
-    if (schema < 3) return {};
-    // Depuis, seule change la façon de combler les places manquantes. C'est elle qui
-    // détermine QUI occupe les slots, donc la validité des résultats enregistrés : on
-    // ne purge que si le régime du tournoi courant n'est plus celui de son schéma.
-    const thirdsCount = pools.filter(p => (p.playerIds || []).length >= 3).length;
-    const missing = window.buildPrincipalSeeds({ pools, players, results }).bracketSize - pools.length * 2;
-    const regime = (v) => {
-      if (missing === 0) return 'direct';
-      if (v <= 3) return missing * 2 <= thirdsCount ? 'barrage' : 'byes';
-      if (v === 4) return missing <= thirdsCount ? 'thirds' : 'byes';
-      return missing === 2 && thirdsCount >= 2 ? 'thirds' : 'byes';
-    };
-    if (regime(schema) !== regime(BRACKET_SCHEMA)) return {};
-    // 5 → 6 : à régime 'byes' inchangé, le placement a pu changer — les exemptions vont
-    // désormais aux meilleures TS. Deux causes, il suffit de l'une :
-    //   • on vide maintenant les partenaires des slots 1..byeCount et non les derniers
-    //     slots du pattern (identique sur un tableau de 16, différent sur 32) ;
-    //   • s'il y a plus d'exemptions que de poules, un 2e est exempté et choisit son
-    //     slot avant les 1ers, ce qui déplace aussi ces derniers.
-    // Quand aucune des deux ne joue (6 et 12 poules), le placement est bit à bit le même
-    // et les résultats restent valables : inutile de les jeter.
-    if (schema < 6 && regime(BRACKET_SCHEMA) === 'byes') {
-      const B = window.buildPrincipalSeeds({ pools, players, results }).bracketSize;
-      const byeCount = B - pools.length * 2;
-      const avant = Array.from({ length: byeCount }, (_, i) => B - i).sort((a, b) => a - b);
-      const apres = Array.from({ length: byeCount }, (_, i) => window.firstRoundOpponent(B, i + 1)).sort((a, b) => a - b);
-      const memesVides = JSON.stringify(avant) === JSON.stringify(apres);
-      if (!memesVides || byeCount > pools.length) return {};
-    }
-    return raw;
-  });
-  React.useEffect(() => {
-    saveState('ertt-bracket-schema', BRACKET_SCHEMA);
-    try { localStorage.removeItem('ertt-barrage-results'); } catch {}
-  }, []);
+  const [results, setResults] = React.useState(() => loadState('ertt-results', {}));
+  const [bracketResults, setBracketResults] = React.useState(() => loadState('ertt-bracket-results', {}));
   const [setsToWin, setSetsToWin] = React.useState(() => loadState('ertt-sets-to-win', 3));
   // Tables attribuées aux matchs en cours, `{ [matchId]: numéro }` — un seul jeu de
   // tables pour le tableau principal et la consolante (AppShell : TABLE_COUNT).
@@ -136,7 +60,7 @@ const App = () => {
   // « Déverrouiller » (PoolsScreen, confirmé), « Réinitialiser » ou « Joueurs de test ».
   const [poolsLocked, setPoolsLocked] = React.useState(() => loadState('ertt-pools-locked', false));
 
-  // Persist shared state
+  // Sauvegarde à chaque modification
   React.useEffect(() => { saveState('ertt-players', players); }, [players]);
   React.useEffect(() => { saveState('ertt-pools', pools); }, [pools]);
   React.useEffect(() => { saveState('ertt-results', results); }, [results]);
