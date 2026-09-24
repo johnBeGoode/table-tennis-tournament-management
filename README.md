@@ -26,6 +26,7 @@ Organize a friendly table tennis tournament within your club or enterprise.
 - Placement matches
 - Automatic players matching
 - Anti-collision rule
+- Final standings for all players
 
 
 ## 📄 Licence
